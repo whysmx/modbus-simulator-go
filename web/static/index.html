@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Modbus Simulator</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Modbus Simulator</h1>
+            <button id="saveBtn" class="btn btn-primary" disabled>Save Changes</button>
+        </header>
+
+        <main>
+            <aside class="tree-panel">
+                <div class="tree-header">
+                    <span>Device Tree</span>
+                    <button id="addConnectionBtn" class="btn btn-sm">+ Connection</button>
+                </div>
+                <div id="deviceTree" class="device-tree"></div>
+            </aside>
+
+            <section class="content-panel">
+                <div class="tabs" id="tabHeaders"></div>
+                <div class="tab-content" id="tabContent">
+                    <div class="empty-state">Select a register type from the device tree</div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Connection Modal -->
+    <div id="connectionModal" class="modal">
+        <div class="modal-content">
+            <h3 id="connectionModalTitle">Add Connection</h3>
+            <form id="connectionForm">
+                <input type="hidden" id="connId">
+                <div class="form-group">
+                    <label>Name</label>
+                    <input type="text" id="connName" required>
+                </div>
+                <div class="form-group">
+                    <label>Port</label>
+                    <input type="number" id="connPort" min="1" max="65535">
+                </div>
+                <div class="form-group">
+                    <label>Protocol</label>
+                    <select id="connProtocol">
+                        <option value="0">Modbus RTU over TCP</option>
+                        <option value="1">Modbus TCP</option>
+                    </select>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn" onclick="closeModal('connectionModal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Slave Modal -->
+    <div id="slaveModal" class="modal">
+        <div class="modal-content">
+            <h3 id="slaveModalTitle">Add Slave</h3>
+            <form id="slaveForm">
+                <input type="hidden" id="slaveConnId">
+                <input type="hidden" id="slaveId">
+                <div class="form-group">
+                    <label>Name</label>
+                    <input type="text" id="slaveName" required>
+                </div>
+                <div class="form-group">
+                    <label>Slave Address (1-247)</label>
+                    <input type="number" id="slaveAddr" min="1" max="247" required>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn" onclick="closeModal('slaveModal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Register Modal -->
+    <div id="registerModal" class="modal">
+        <div class="modal-content">
+            <h3 id="registerModalTitle">Add Register</h3>
+            <form id="registerForm">
+                <input type="hidden" id="regConnId">
+                <input type="hidden" id="regSlaveId">
+                <input type="hidden" id="regId">
+                <div class="form-group">
+                    <label>Start Address</label>
+                    <input type="number" id="regStartAddr" required>
+                    <small>1-9999: Coil, 10001-19999: Discrete Input, 30001-39999: Input Reg, 40001-49999: Holding Reg</small>
+                </div>
+                <div class="form-group">
+                    <label>Hex Data</label>
+                    <input type="text" id="regHexData" pattern="[0-9A-Fa-f]+" required>
+                    <small>Hex string (0-9, A-F). Register: 4 chars per register. Coil: 2 chars per 8 bits.</small>
+                </div>
+                <div class="form-group">
+                    <label>Names (comma separated, optional)</label>
+                    <input type="text" id="regNames">
+                </div>
+                <div class="form-group">
+                    <label>Coefficients (comma separated, optional)</label>
+                    <input type="text" id="regCoefficients">
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn" onclick="closeModal('registerModal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

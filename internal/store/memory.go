@@ -280,9 +280,21 @@ func (s *Store) GetSlaveByAddress(connID string, slaveAddr int) (*model.Slave, e
 	defer s.mu.RUnlock()
 
 	for _, id := range s.connIDToSlaves[connID] {
-		if slave, ok := s.slaves[id]; ok && slave.SlaveID == slaveAddr {
+		if slave, ok := s.slaves[id]; ok && slave.SlaveAddr == slaveAddr {
 			return slave, nil
 		}
 	}
 	return nil, ErrNotFound
+}
+
+// UpdateSlave updates an existing slave
+func (s *Store) UpdateSlave(slave *model.Slave) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.slaves[slave.ID]; !ok {
+		return ErrNotFound
+	}
+	s.slaves[slave.ID] = slave
+	return nil
 }

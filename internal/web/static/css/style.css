@@ -1,0 +1,326 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+    background: #f5f5f5;
+    color: #333;
+}
+
+.container {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+header {
+    background: #1a73e8;
+    color: white;
+    padding: 1rem 2rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+header h1 {
+    font-size: 1.5rem;
+    font-weight: 500;
+}
+
+main {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+}
+
+/* Tree Panel */
+.tree-panel {
+    width: 300px;
+    background: white;
+    border-right: 1px solid #ddd;
+    display: flex;
+    flex-direction: column;
+}
+
+.tree-header {
+    padding: 1rem;
+    border-bottom: 1px solid #ddd;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: 500;
+}
+
+.device-tree {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0.5rem;
+}
+
+.tree-node {
+    user-select: none;
+}
+
+.tree-node-content {
+    padding: 0.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    border-radius: 4px;
+}
+
+.tree-node-content:hover {
+    background: #f0f0f0;
+}
+
+.tree-node-content.selected {
+    background: #e3f2fd;
+}
+
+.tree-expand {
+    width: 20px;
+    text-align: center;
+    cursor: pointer;
+}
+
+.tree-icon {
+    width: 20px;
+    text-align: center;
+}
+
+.tree-label {
+    flex: 1;
+}
+
+.tree-actions {
+    display: none;
+    gap: 4px;
+}
+
+.tree-node-content:hover .tree-actions {
+    display: flex;
+}
+
+.tree-children {
+    margin-left: 1.5rem;
+}
+
+.tree-children.collapsed {
+    display: none;
+}
+
+/* Content Panel */
+.content-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.tabs {
+    display: flex;
+    background: white;
+    border-bottom: 1px solid #ddd;
+    overflow-x: auto;
+}
+
+.tab {
+    padding: 0.75rem 1rem;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.tab:hover {
+    background: #f5f5f5;
+}
+
+.tab.active {
+    border-bottom-color: #1a73e8;
+    color: #1a73e8;
+}
+
+.tab-close {
+    font-size: 0.8rem;
+    padding: 2px 4px;
+    border-radius: 50%;
+}
+
+.tab-close:hover {
+    background: #ddd;
+}
+
+.tab-content {
+    flex: 1;
+    overflow: auto;
+    padding: 1rem;
+    background: white;
+}
+
+.empty-state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: #666;
+}
+
+/* Register Table */
+.register-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.register-table th,
+.register-table td {
+    padding: 0.5rem;
+    border: 1px solid #ddd;
+    text-align: left;
+}
+
+.register-table th {
+    background: #f5f5f5;
+    font-weight: 500;
+    position: sticky;
+    top: 0;
+}
+
+.register-table input {
+    width: 100%;
+    padding: 0.25rem;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+.register-table input.dirty {
+    background: #fff3e0;
+}
+
+.register-table input:focus {
+    outline: none;
+    border-color: #1a73e8;
+}
+
+/* Buttons */
+.btn {
+    padding: 0.5rem 1rem;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.875rem;
+    background: #e0e0e0;
+    color: #333;
+}
+
+.btn:hover {
+    background: #d0d0d0;
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.btn-primary {
+    background: #1a73e8;
+    color: white;
+}
+
+.btn-primary:hover {
+    background: #1557b0;
+}
+
+.btn-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+}
+
+.btn-icon {
+    padding: 0.25rem;
+    background: transparent;
+    border-radius: 4px;
+}
+
+.btn-icon:hover {
+    background: #e0e0e0;
+}
+
+.btn-danger {
+    color: #d32f2f;
+}
+
+/* Modal */
+.modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 1000;
+    justify-content: center;
+    align-items: center;
+}
+
+.modal.show {
+    display: flex;
+}
+
+.modal-content {
+    background: white;
+    padding: 1.5rem;
+    border-radius: 8px;
+    min-width: 400px;
+    max-width: 90%;
+}
+
+.modal-content h3 {
+    margin-bottom: 1rem;
+}
+
+.form-group {
+    margin-bottom: 1rem;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-weight: 500;
+}
+
+.form-group input,
+.form-group select {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+.form-group small {
+    display: block;
+    margin-top: 0.25rem;
+    color: #666;
+    font-size: 0.75rem;
+}
+
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-top: 1rem;
+}
+
+/* Table actions */
+.table-actions {
+    margin-bottom: 1rem;
+    display: flex;
+    gap: 0.5rem;
+}
