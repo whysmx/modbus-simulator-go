@@ -6,11 +6,11 @@ import (
 )
 
 var (
-	ErrInvalidFrame      = errors.New("invalid frame")
-	ErrInvalidCRC        = errors.New("invalid CRC")
-	ErrIllegalFunction   = errors.New("illegal function")
-	ErrIllegalDataAddr   = errors.New("illegal data address")
-	ErrIllegalDataValue  = errors.New("illegal data value")
+	ErrInvalidFrame     = errors.New("invalid frame")
+	ErrInvalidCRC       = errors.New("invalid CRC")
+	ErrIllegalFunction  = errors.New("illegal function")
+	ErrIllegalDataAddr  = errors.New("illegal data address")
+	ErrIllegalDataValue = errors.New("illegal data value")
 )
 
 // ModbusError codes

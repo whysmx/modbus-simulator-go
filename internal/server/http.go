@@ -23,13 +23,13 @@ func NewRouter(api *handler.APIHandler, staticFS http.FileSystem) *Router {
 
 // regex patterns for route matching
 var (
-	connectionsTreePattern   = regexp.MustCompile(`^/api/connections/tree$`)
-	connectionsPattern       = regexp.MustCompile(`^/api/connections$`)
-	connectionPattern        = regexp.MustCompile(`^/api/connections/([a-f0-9]{32})$`)
-	slavesPattern            = regexp.MustCompile(`^/api/connections/([a-f0-9]{32})/slaves$`)
-	slavePattern             = regexp.MustCompile(`^/api/connections/([a-f0-9]{32})/slaves/([a-f0-9]{32})$`)
-	registersPattern         = regexp.MustCompile(`^/api/connections/([a-f0-9]{32})/slaves/([a-f0-9]{32})/registers$`)
-	registerPattern          = regexp.MustCompile(`^/api/connections/([a-f0-9]{32})/slaves/([a-f0-9]{32})/registers/([a-f0-9]{32})$`)
+	connectionsTreePattern = regexp.MustCompile(`^/api/connections/tree$`)
+	connectionsPattern     = regexp.MustCompile(`^/api/connections$`)
+	connectionPattern      = regexp.MustCompile(`^/api/connections/([a-f0-9]{32})$`)
+	slavesPattern          = regexp.MustCompile(`^/api/connections/([a-f0-9]{32})/slaves$`)
+	slavePattern           = regexp.MustCompile(`^/api/connections/([a-f0-9]{32})/slaves/([a-f0-9]{32})$`)
+	registersPattern       = regexp.MustCompile(`^/api/connections/([a-f0-9]{32})/slaves/([a-f0-9]{32})/registers$`)
+	registerPattern        = regexp.MustCompile(`^/api/connections/([a-f0-9]{32})/slaves/([a-f0-9]{32})/registers/([a-f0-9]{32})$`)
 )
 
 // ServeHTTP implements the http.Handler interface
