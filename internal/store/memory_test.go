@@ -238,3 +238,284 @@ func TestUpdateRegister(t *testing.T) {
 		t.Errorf("HexData = %s, want ABCD", got.HexData)
 	}
 }
+
+func TestDeleteSlave(t *testing.T) {
+	s := New()
+
+	conn := &model.Connection{ID: "delslavconndelslaveconndelslav01", Name: "Conn", Port: 1502}
+	s.CreateConnection(conn)
+
+	slave := &model.Slave{ID: "slavetodelslavetodelslavetodel01", ConnID: conn.ID, Name: "Slave", SlaveAddr: 1}
+	s.CreateSlave(slave)
+
+	// Add register to slave
+	reg := &model.Register{ID: "regindelregindelregindelreg0101", SlaveID: slave.ID, StartAddr: 40001, HexData: "1234"}
+	s.CreateRegister(reg)
+
+	// Delete slave
+	err := s.DeleteSlave(slave.ID)
+	if err != nil {
+		t.Fatalf("DeleteSlave failed: %v", err)
+	}
+
+	// Verify slave is gone
+	_, err = s.GetSlave(slave.ID)
+	if err != ErrNotFound {
+		t.Error("Expected slave to be deleted")
+	}
+
+	// Verify register is gone (cascade delete)
+	_, err = s.GetRegister(reg.ID)
+	if err != ErrNotFound {
+		t.Error("Expected register to be deleted")
+	}
+}
+
+func TestDeleteSlaveNotFound(t *testing.T) {
+	s := New()
+
+	err := s.DeleteSlave("nonexistentidnonexistentidnone1")
+	if err != ErrNotFound {
+		t.Errorf("Expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestDeleteRegister(t *testing.T) {
+	s := New()
+
+	conn := &model.Connection{ID: "delregconndelregconndelregconn01", Name: "Conn", Port: 1502}
+	s.CreateConnection(conn)
+
+	slave := &model.Slave{ID: "delregslvdelregslvdelregslv01234", ConnID: conn.ID, Name: "Slave", SlaveAddr: 1}
+	s.CreateSlave(slave)
+
+	reg := &model.Register{ID: "regtodelregtodelregtodelreg01234", SlaveID: slave.ID, StartAddr: 40001, HexData: "1234"}
+	s.CreateRegister(reg)
+
+	err := s.DeleteRegister(reg.ID)
+	if err != nil {
+		t.Fatalf("DeleteRegister failed: %v", err)
+	}
+
+	_, err = s.GetRegister(reg.ID)
+	if err != ErrNotFound {
+		t.Error("Expected register to be deleted")
+	}
+}
+
+func TestDeleteRegisterNotFound(t *testing.T) {
+	s := New()
+
+	err := s.DeleteRegister("nonexistentidnonexistentidnone1")
+	if err != ErrNotFound {
+		t.Errorf("Expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestGetConnectionByPort(t *testing.T) {
+	s := New()
+
+	conn := &model.Connection{ID: "connbyportconnbyportconnbyport01", Name: "Conn", Port: 1502}
+	s.CreateConnection(conn)
+
+	// Found
+	got, err := s.GetConnectionByPort(1502)
+	if err != nil {
+		t.Fatalf("GetConnectionByPort failed: %v", err)
+	}
+	if got.ID != conn.ID {
+		t.Errorf("ID = %s, want %s", got.ID, conn.ID)
+	}
+
+	// Not found
+	_, err = s.GetConnectionByPort(9999)
+	if err != ErrNotFound {
+		t.Errorf("Expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestUpdateSlave(t *testing.T) {
+	s := New()
+
+	conn := &model.Connection{ID: "upslaveconnupslaveconnupslavecon", Name: "Conn", Port: 1502}
+	s.CreateConnection(conn)
+
+	slave := &model.Slave{ID: "slavetoupdaslavetoupdaslavetoup", ConnID: conn.ID, Name: "Original", SlaveAddr: 1}
+	s.CreateSlave(slave)
+
+	// Use a NEW struct to update (not the same pointer)
+	updateReq := &model.Slave{
+		ID:        slave.ID,
+		ConnID:    conn.ID,
+		Name:      "Updated",
+		SlaveAddr: 5,
+	}
+	err := s.UpdateSlave(updateReq)
+	if err != nil {
+		t.Fatalf("UpdateSlave failed: %v", err)
+	}
+
+	got, _ := s.GetSlave(slave.ID)
+	if got.Name != "Updated" {
+		t.Errorf("Name = %s, want Updated", got.Name)
+	}
+	if got.SlaveAddr != 5 {
+		t.Errorf("SlaveAddr = %d, want 5", got.SlaveAddr)
+	}
+}
+
+func TestUpdateSlaveNotFound(t *testing.T) {
+	s := New()
+
+	slave := &model.Slave{ID: "nonexistentidnonexistentidnonex", ConnID: "connid", Name: "Slave", SlaveAddr: 1}
+	err := s.UpdateSlave(slave)
+	if err != ErrNotFound {
+		t.Errorf("Expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestUpdateRegisterNotFound(t *testing.T) {
+	s := New()
+
+	reg := &model.Register{ID: "nonexistentidnonexistentidnonex", SlaveID: "slaveid", StartAddr: 40001, HexData: "1234"}
+	err := s.UpdateRegister(reg)
+	if err != ErrNotFound {
+		t.Errorf("Expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestUpdateConnectionNotFound(t *testing.T) {
+	s := New()
+
+	conn := &model.Connection{ID: "nonexistentidnonexistentidnonex", Name: "Conn", Port: 1502}
+	err := s.UpdateConnection(conn)
+	if err != ErrNotFound {
+		t.Errorf("Expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestDeleteConnectionNotFound(t *testing.T) {
+	s := New()
+
+	err := s.DeleteConnection("nonexistentidnonexistentidnonex")
+	if err != ErrNotFound {
+		t.Errorf("Expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestGetSlaveNotFound(t *testing.T) {
+	s := New()
+
+	_, err := s.GetSlave("nonexistentidnonexistentidnonex")
+	if err != ErrNotFound {
+		t.Errorf("Expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestGetConnectionNotFound(t *testing.T) {
+	s := New()
+
+	_, err := s.GetConnection("nonexistentidnonexistentidnonex")
+	if err != ErrNotFound {
+		t.Errorf("Expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestCreateSlaveWithoutConnection(t *testing.T) {
+	s := New()
+
+	slave := &model.Slave{ID: "orphanslaveorphanslaveorphansla1", ConnID: "nonexistent", Name: "Slave", SlaveAddr: 1}
+	err := s.CreateSlave(slave)
+	if err != ErrNotFound {
+		t.Errorf("Expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestCreateRegisterWithoutSlave(t *testing.T) {
+	s := New()
+
+	reg := &model.Register{ID: "orphanregorphanregorphanreg0001", SlaveID: "nonexistent", StartAddr: 40001, HexData: "1234"}
+	err := s.CreateRegister(reg)
+	if err != ErrNotFound {
+		t.Errorf("Expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestUpdateConnectionPortConflict(t *testing.T) {
+	s := New()
+
+	conn1 := &model.Connection{ID: "portconflict1portconflict1portc1", Name: "Conn1", Port: 1502}
+	conn2 := &model.Connection{ID: "portconflict2portconflict2portc2", Name: "Conn2", Port: 1503}
+
+	s.CreateConnection(conn1)
+	s.CreateConnection(conn2)
+
+	// Try to update conn2 to use conn1's port using a new object (don't modify the original)
+	updateReq := &model.Connection{ID: conn2.ID, Name: "Conn2", Port: 1502}
+	err := s.UpdateConnection(updateReq)
+	if err != ErrPortInUse {
+		t.Errorf("Expected ErrPortInUse, got %v", err)
+	}
+
+	// Verify conn2 still has old port in store
+	got, _ := s.GetConnection(conn2.ID)
+	if got.Port != 1503 {
+		t.Errorf("conn2 port = %d, want 1503 (unchanged)", got.Port)
+	}
+}
+
+func TestUpdateConnectionPortChange(t *testing.T) {
+	s := New()
+
+	conn := &model.Connection{ID: "portchangeportchangeportchange01", Name: "Test", Port: 1502}
+	s.CreateConnection(conn)
+
+	// Update port using a new object with the same ID
+	updateReq := &model.Connection{ID: conn.ID, Name: "Test", Port: 1600}
+	err := s.UpdateConnection(updateReq)
+	if err != nil {
+		t.Fatalf("UpdateConnection failed: %v", err)
+	}
+
+	// Verify old port is freed
+	_, err = s.GetConnectionByPort(1502)
+	if err != ErrNotFound {
+		t.Error("Old port should be freed after update")
+	}
+
+	// Verify new port is indexed
+	got, err := s.GetConnectionByPort(1600)
+	if err != nil {
+		t.Fatalf("GetConnectionByPort(1600) failed: %v", err)
+	}
+	if got.ID != conn.ID {
+		t.Errorf("GetConnectionByPort(1600) ID = %s, want %s", got.ID, conn.ID)
+	}
+}
+
+func TestUpdateConnectionSamePort(t *testing.T) {
+	s := New()
+
+	conn := &model.Connection{ID: "sameportsameportsameportsamepo01", Name: "Test", Port: 1502}
+	s.CreateConnection(conn)
+
+	// Use a NEW struct to update (not the same pointer)
+	updateReq := &model.Connection{
+		ID:   conn.ID,
+		Name: "Updated Name",
+		Port: 1502,
+	}
+	err := s.UpdateConnection(updateReq)
+	if err != nil {
+		t.Fatalf("UpdateConnection failed: %v", err)
+	}
+
+	// Verify port is still indexed
+	got, err := s.GetConnectionByPort(1502)
+	if err != nil {
+		t.Fatalf("GetConnectionByPort failed: %v", err)
+	}
+	if got.Name != "Updated Name" {
+		t.Errorf("Name = %s, want Updated Name", got.Name)
+	}
+}

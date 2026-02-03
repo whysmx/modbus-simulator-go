@@ -19,7 +19,7 @@ go build -o modbus-simulator ./cmd/modbus-simulator
 # Run
 ./modbus-simulator
 
-# Access web UI at http://localhost:8080
+# Access web UI at http://localhost:3002
 ```
 
 ## Project Structure

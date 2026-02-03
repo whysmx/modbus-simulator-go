@@ -6,6 +6,7 @@ type ProtocolType int
 const (
 	ModbusRtuOverTcp ProtocolType = 0
 	ModbusTcp        ProtocolType = 1
+	ModbusAuto       ProtocolType = 2
 )
 
 // Connection represents a TCP port binding for Modbus communication
@@ -21,7 +22,7 @@ type Slave struct {
 	ID        string `json:"id"`
 	ConnID    string `json:"connId"`
 	Name      string `json:"name"`
-	SlaveAddr int    `json:"slaveAddr"` // 1-247
+	SlaveAddr int    `json:"slaveAddr"` // Valid range: 1-247 (per Modbus spec, 0=broadcast, 248-255=reserved)
 }
 
 // Register represents a Modbus register with hex data
@@ -41,7 +42,14 @@ const (
 	Coil            RegisterType = iota // Function code 01, address 1-9999
 	DiscreteInput                       // Function code 02, address 10001-19999
 	InputRegister                       // Function code 04, address 30001-39999
-	HoldingRegister                     // Function code 03, address 40001-49999
+	HoldingRegister                     // Function code 03, address 40001-105536 (0-65535 PDU + 40001)
+)
+
+const (
+	// Max PDU address for Modbus is 0xFFFF (65535)
+	maxPDUAddress = 0xFFFF
+	// Max logical address for holding registers (40001 + 65535)
+	maxHoldingAddress = 40001 + maxPDUAddress
 )
 
 // FunctionCode returns the Modbus function code for reading this register type
@@ -69,7 +77,7 @@ func GetRegisterType(addr int) RegisterType {
 		return DiscreteInput
 	case addr >= 30001 && addr <= 39999:
 		return InputRegister
-	case addr >= 40001 && addr <= 49999:
+	case addr >= 40001 && addr <= maxHoldingAddress:
 		return HoldingRegister
 	default:
 		return Coil // Default fallback
@@ -81,7 +89,7 @@ func IsValidAddress(addr int) bool {
 	return (addr >= 1 && addr <= 9999) ||
 		(addr >= 10001 && addr <= 19999) ||
 		(addr >= 30001 && addr <= 39999) ||
-		(addr >= 40001 && addr <= 49999)
+		(addr >= 40001 && addr <= maxHoldingAddress)
 }
 
 // GetAddressOffset calculates the 0-based offset within the register type
@@ -93,7 +101,7 @@ func GetAddressOffset(addr int) uint16 {
 		return uint16(addr - 10001)
 	case addr >= 30001 && addr <= 39999:
 		return uint16(addr - 30001)
-	case addr >= 40001 && addr <= 49999:
+	case addr >= 40001 && addr <= maxHoldingAddress:
 		return uint16(addr - 40001)
 	default:
 		return 0

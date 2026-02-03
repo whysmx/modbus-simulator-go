@@ -288,6 +288,29 @@ func TestRouterDeleteRegister(t *testing.T) {
 	}
 }
 
+func TestRouterGetRegister(t *testing.T) {
+	s := store.New()
+	tcp := &mockTCPServer{}
+	api := handler.NewAPIHandler(s, tcp, 1502)
+	router := NewRouter(api, nil)
+
+	conn := &model.Connection{ID: "aabbccdd11223344aabbccdd11223377", Name: "Conn", Port: 1502}
+	s.CreateConnection(conn)
+	slave := &model.Slave{ID: "11223344aabbccdd11223344aabbcc77", ConnID: conn.ID, Name: "Slave", SlaveAddr: 1}
+	s.CreateSlave(slave)
+	reg := &model.Register{ID: "77443322aabbccdd77443322aabbccdd", SlaveID: slave.ID, StartAddr: 40001, HexData: "1234"}
+	s.CreateRegister(reg)
+
+	req := httptest.NewRequest("GET", "/api/connections/aabbccdd11223344aabbccdd11223377/slaves/11223344aabbccdd11223344aabbcc77/registers/77443322aabbccdd77443322aabbccdd", nil)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Status = %d, want %d. Body: %s", w.Code, http.StatusOK, w.Body.String())
+	}
+}
+
 func TestRouterNotFound(t *testing.T) {
 	router := setupRouter()
 

@@ -104,6 +104,9 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if matches := registerPattern.FindStringSubmatch(path); matches != nil {
 		connID, slaveID, regID := matches[1], matches[2], matches[3]
 		switch req.Method {
+		case "GET":
+			r.apiHandler.GetRegister(w, req, connID, slaveID, regID)
+			return
 		case "PUT":
 			r.apiHandler.UpdateRegister(w, req, connID, slaveID, regID)
 			return
@@ -113,8 +116,23 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	// Static files
-	if r.staticFS != nil {
+	// Serve index.html for root path
+	if path == "/" {
+		if r.staticFS != nil {
+			f, err := r.staticFS.Open("index.html")
+			if err == nil {
+				defer f.Close()
+				stat, _ := f.Stat()
+				http.ServeContent(w, req, "index.html", stat.ModTime(), f.(http.File))
+				return
+			}
+		}
+	}
+
+	// Static files with /static/ prefix
+	if r.staticFS != nil && len(path) > 8 && path[:8] == "/static/" {
+		// Strip /static/ prefix
+		req.URL.Path = path[7:] // Keep leading slash: /static/css/... -> /css/...
 		fileServer := http.FileServer(r.staticFS)
 		fileServer.ServeHTTP(w, req)
 		return

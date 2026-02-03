@@ -128,7 +128,10 @@ func (h *ModbusHandler) collectRegisterData(registers []*model.Register, logical
 		}
 
 		if !found {
-			// Return zeros for unmapped addresses
+			// DESIGN DECISION: Return zeros for unmapped addresses instead of exception.
+			// This is intentional simulator behavior to allow flexible testing scenarios.
+			// Per strict Modbus spec, unmapped addresses should return Exception Code 0x02
+			// (Illegal Data Address), but for simulation purposes we return zero values.
 			result[i*2] = 0
 			result[i*2+1] = 0
 		}
@@ -178,4 +181,127 @@ func (h *ModbusHandler) collectBitData(registers []*model.Register, logicalStart
 	}
 
 	return result
+}
+
+// WriteSingleCoil handles function code 0x05
+func (h *ModbusHandler) WriteSingleCoil(slaveID byte, address uint16, value []byte) error {
+	slave, err := h.store.GetSlaveByAddress(h.connID, int(slaveID))
+	if err != nil {
+		return protocol.ErrIllegalDataAddr
+	}
+
+	logicalAddr := h.toLogicalAddress(address, model.Coil)
+	return h.writeBits(slave.ID, logicalAddr, 1, value, model.Coil)
+}
+
+// WriteSingleRegister handles function code 0x06
+func (h *ModbusHandler) WriteSingleRegister(slaveID byte, address uint16, value []byte) error {
+	slave, err := h.store.GetSlaveByAddress(h.connID, int(slaveID))
+	if err != nil {
+		return protocol.ErrIllegalDataAddr
+	}
+
+	logicalAddr := h.toLogicalAddress(address, model.HoldingRegister)
+	return h.writeRegisters(slave.ID, logicalAddr, 1, value, model.HoldingRegister)
+}
+
+// WriteMultipleCoils handles function code 0x0F
+func (h *ModbusHandler) WriteMultipleCoils(slaveID byte, startAddr, quantity uint16, data []byte) error {
+	slave, err := h.store.GetSlaveByAddress(h.connID, int(slaveID))
+	if err != nil {
+		return protocol.ErrIllegalDataAddr
+	}
+
+	logicalStart := h.toLogicalAddress(startAddr, model.Coil)
+	return h.writeBits(slave.ID, logicalStart, int(quantity), data, model.Coil)
+}
+
+// WriteMultipleRegisters handles function code 0x10
+func (h *ModbusHandler) WriteMultipleRegisters(slaveID byte, startAddr, quantity uint16, data []byte) error {
+	slave, err := h.store.GetSlaveByAddress(h.connID, int(slaveID))
+	if err != nil {
+		return protocol.ErrIllegalDataAddr
+	}
+
+	logicalStart := h.toLogicalAddress(startAddr, model.HoldingRegister)
+	return h.writeRegisters(slave.ID, logicalStart, int(quantity), data, model.HoldingRegister)
+}
+
+// writeBits writes coil data to matching registers
+func (h *ModbusHandler) writeBits(slaveID string, logicalStart, quantity int, data []byte, regType model.RegisterType) error {
+	registers := h.store.GetRegistersBySlave(slaveID)
+
+	for i := 0; i < quantity; i++ {
+		addr := logicalStart + i
+		byteIdx := i / 8
+		bitIdx := i % 8
+		bitValue := false
+		if byteIdx < len(data) {
+			bitValue = (data[byteIdx] & (1 << bitIdx)) != 0
+		}
+
+		for _, reg := range registers {
+			if model.GetRegisterType(reg.StartAddr) != regType {
+				continue
+			}
+
+			if addr >= reg.StartAddr && addr <= reg.EndAddr() {
+				// Update bit in register's hex data
+				bitOffset := addr - reg.StartAddr
+				regByteIdx := bitOffset / 8
+				regBitIdx := bitOffset % 8
+
+				hexData := strings.ToUpper(reg.HexData)
+				if regByteIdx*2+2 <= len(hexData) {
+					hexByte := hexData[regByteIdx*2 : regByteIdx*2+2]
+					bytes, err := hex.DecodeString(hexByte)
+					if err == nil && len(bytes) == 1 {
+						if bitValue {
+							bytes[0] |= (1 << regBitIdx)
+						} else {
+							bytes[0] &^= (1 << regBitIdx)
+						}
+						// Update hex data
+						newHex := hexData[:regByteIdx*2] + strings.ToUpper(hex.EncodeToString(bytes)) + hexData[regByteIdx*2+2:]
+						reg.HexData = newHex
+						h.store.UpdateRegister(reg)
+					}
+				}
+				break
+			}
+		}
+	}
+
+	return nil
+}
+
+// writeRegisters writes register data to matching registers
+func (h *ModbusHandler) writeRegisters(slaveID string, logicalStart, quantity int, data []byte, regType model.RegisterType) error {
+	registers := h.store.GetRegistersBySlave(slaveID)
+
+	for i := 0; i < quantity; i++ {
+		addr := logicalStart + i
+		if i*2+2 > len(data) {
+			break
+		}
+		value := data[i*2 : i*2+2]
+
+		for _, reg := range registers {
+			if model.GetRegisterType(reg.StartAddr) != regType {
+				continue
+			}
+
+			if addr >= reg.StartAddr && addr <= reg.EndAddr() {
+				offset := (addr - reg.StartAddr) * 4 // 4 hex chars per register
+				if offset+4 <= len(reg.HexData) {
+					newHex := reg.HexData[:offset] + strings.ToUpper(hex.EncodeToString(value)) + reg.HexData[offset+4:]
+					reg.HexData = newHex
+					h.store.UpdateRegister(reg)
+				}
+				break
+			}
+		}
+	}
+
+	return nil
 }

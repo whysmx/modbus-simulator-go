@@ -1,7 +1,9 @@
 package store
 
 import (
+	"database/sql"
 	"errors"
+	"strings"
 	"sync"
 
 	"github.com/whysmx/modbus-simulator-go/internal/model"
@@ -16,6 +18,7 @@ var (
 // Store provides thread-safe in-memory storage for Modbus entities
 type Store struct {
 	mu          sync.RWMutex
+	db          *sql.DB
 	connections map[string]*model.Connection
 	slaves      map[string]*model.Slave
 	registers   map[string]*model.Register
@@ -46,6 +49,15 @@ func (s *Store) CreateConnection(conn *model.Connection) error {
 
 	if _, exists := s.portToConnID[conn.Port]; exists {
 		return ErrPortInUse
+	}
+
+	if s.db != nil {
+		if err := s.insertConnection(conn); err != nil {
+			if strings.Contains(err.Error(), "UNIQUE constraint failed: connections.port") {
+				return ErrPortInUse
+			}
+			return err
+		}
 	}
 
 	s.connections[conn.ID] = conn
@@ -93,6 +105,15 @@ func (s *Store) UpdateConnection(conn *model.Connection) error {
 		s.portToConnID[conn.Port] = conn.ID
 	}
 
+	if s.db != nil {
+		if err := s.updateConnection(conn); err != nil {
+			if strings.Contains(err.Error(), "UNIQUE constraint failed: connections.port") {
+				return ErrPortInUse
+			}
+			return err
+		}
+	}
+
 	s.connections[conn.ID] = conn
 	return nil
 }
@@ -104,6 +125,12 @@ func (s *Store) DeleteConnection(id string) error {
 	conn, ok := s.connections[id]
 	if !ok {
 		return ErrNotFound
+	}
+
+	if s.db != nil {
+		if err := s.deleteConnection(id); err != nil {
+			return err
+		}
 	}
 
 	// Delete all slaves and their registers
@@ -129,6 +156,12 @@ func (s *Store) CreateSlave(slave *model.Slave) error {
 
 	if _, ok := s.connections[slave.ConnID]; !ok {
 		return ErrNotFound
+	}
+
+	if s.db != nil {
+		if err := s.insertSlave(slave); err != nil {
+			return err
+		}
 	}
 
 	s.slaves[slave.ID] = slave
@@ -170,6 +203,12 @@ func (s *Store) DeleteSlave(id string) error {
 		return ErrNotFound
 	}
 
+	if s.db != nil {
+		if err := s.deleteSlave(id); err != nil {
+			return err
+		}
+	}
+
 	// Delete all registers
 	for _, regID := range s.slaveToRegs[id] {
 		delete(s.registers, regID)
@@ -197,6 +236,12 @@ func (s *Store) CreateRegister(reg *model.Register) error {
 
 	if _, ok := s.slaves[reg.SlaveID]; !ok {
 		return ErrNotFound
+	}
+
+	if s.db != nil {
+		if err := s.insertRegister(reg); err != nil {
+			return err
+		}
 	}
 
 	s.registers[reg.ID] = reg
@@ -236,6 +281,13 @@ func (s *Store) UpdateRegister(reg *model.Register) error {
 	if _, ok := s.registers[reg.ID]; !ok {
 		return ErrNotFound
 	}
+
+	if s.db != nil {
+		if err := s.updateRegister(reg); err != nil {
+			return err
+		}
+	}
+
 	s.registers[reg.ID] = reg
 	return nil
 }
@@ -247,6 +299,12 @@ func (s *Store) DeleteRegister(id string) error {
 	reg, ok := s.registers[id]
 	if !ok {
 		return ErrNotFound
+	}
+
+	if s.db != nil {
+		if err := s.deleteRegister(id); err != nil {
+			return err
+		}
 	}
 
 	// Remove from slave index
@@ -294,6 +352,12 @@ func (s *Store) UpdateSlave(slave *model.Slave) error {
 
 	if _, ok := s.slaves[slave.ID]; !ok {
 		return ErrNotFound
+	}
+
+	if s.db != nil {
+		if err := s.updateSlave(slave); err != nil {
+			return err
+		}
 	}
 	s.slaves[slave.ID] = slave
 	return nil

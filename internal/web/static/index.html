@@ -11,9 +11,9 @@
 <body>
     <div class="container">
         <header>
-            <h1>Modbus 模拟器</h1>
-            <div class="header-actions">
-                <button id="saveBtn" class="btn btn-primary" disabled>保存更改</button>
+            <div class="header-brand">
+                <h1>Modbus 模拟器</h1>
+                <span class="version-badge">v1.5</span>
             </div>
         </header>
 
@@ -22,8 +22,7 @@
                 <div class="tree-header">
                     <span></span>
                     <div class="tree-header-actions">
-                        <button id="addConnectionBtn" class="btn btn-sm">+ 设备</button>
-                        <button id="importBtn" class="btn btn-sm">导入报文</button>
+                        <button id="importBtn" class="btn btn-sm">编辑</button>
                     </div>
                 </div>
                 <div id="deviceTree" class="device-tree"></div>
@@ -48,6 +47,7 @@
                 <div class="form-group">
                     <label>名称</label>
                     <input type="text" id="connName">
+                    <small>填写驱动名称，例如：烟气分析仪_ZT_EM5</small>
                 </div>
                 <div class="form-group">
                     <label>端口 (不填则自动分配)</label>
@@ -74,14 +74,16 @@
                 <input type="hidden" id="regSlaveId">
                 <input type="hidden" id="regId">
                 <div class="form-group">
-                    <label>起始地址</label>
+                    <label>起始地址<span class="required">*</span></label>
                     <input type="number" id="regStartAddr" required>
                     <small>1-9999: 线圈, 10001-19999: 离散输入, 30001-39999: 输入寄存器, 40001-49999: 保持寄存器</small>
                 </div>
                 <div class="form-group">
-                    <label>十六进制数据</label>
+                    <label>十六进制数据<span class="required">*</span></label>
                     <input type="text" id="regHexData" pattern="[0-9A-Fa-f]+" required>
                     <small>十六进制字符串 (0-9, A-F)。寄存器: 每个寄存器 4 个字符。线圈: 每 8 位 2 个字符。</small>
+                    <small class="form-warn">清空并保存会删除该寄存器块。</small>
+                    <small class="form-error" id="regHexError" style="display:none"></small>
                 </div>
                 <div class="form-group">
                     <label>名称 (逗号分隔,可选)</label>
@@ -102,29 +104,31 @@
     <!-- Import Frames Modal -->
     <div id="importModal" class="modal">
         <div class="modal-content">
-            <h3>导入报文</h3>
+            <div class="modal-header">
+                <h3>编辑</h3>
+                <div class="modal-header-actions">
+                    <button type="button" class="btn" onclick="closeModal('importModal')">取消</button>
+                    <button type="submit" class="btn btn-primary" form="importForm">保存</button>
+                </div>
+            </div>
+            <div id="importSummary" class="import-summary"></div>
             <form id="importForm">
                 <div class="form-group">
-                    <label>连接</label>
+                    <label>设备<span class="required">*</span> <span class="label-hint">(可下拉选择已有设备)</span></label>
                     <select id="importConnId" required></select>
                 </div>
                 <div class="form-group" id="importNewConnNameGroup" style="display:none;">
-                    <label>名称</label>
-                    <input type="text" id="importConnName" placeholder="如：烟气分析仪">
+                    <label>名称<span class="required">*</span></label>
+                    <input type="text" id="importConnName" placeholder="填写驱动名称，例如：烟气分析仪_ZT_EM5">
                 </div>
                 <div class="form-group" id="importNewConnPortGroup" style="display:none;">
-                    <label>端口 (不填则自动分配)</label>
+                    <label>端口</label>
                     <input type="number" id="importConnPort" min="1" max="65535" placeholder="不填则自动分配">
                 </div>
                 <div class="form-group">
-                    <label>报文</label>
-                    <textarea id="importFrames" rows="10" placeholder="【发送】【15:43:48】【设备名】：<01 04 00 14 00 01 71 CE>"></textarea>
-                    <small>支持格式：【发送/接收】【时间】【设备名】：&lt;HEX...&gt;。自动判断 Modbus TCP/RTU，RTU 必须 CRC 正确。</small>
-                </div>
-                <div id="importSummary" class="import-summary"></div>
-                <div class="modal-actions">
-                    <button type="button" class="btn" onclick="closeModal('importModal')">取消</button>
-                    <button type="submit" class="btn btn-primary">导入</button>
+                    <label>从报文导入数据 <span class="label-hint">(新增或更新寄存器数据)</span></label>
+                    <small class="hint-strong">打开设备调试窗口，点击 <strong>获取数据</strong>/<strong>获取状态</strong>/<strong>获取报警</strong>/<strong>获取时间</strong> 将全部报文复制到这里：</small>
+                    <textarea id="importFrames" rows="10" placeholder="【发送】【12:12:21】【烟气分析仪】：<01 04 00 14 00 01 71 CE>&#10;【接收】【12:12:22】【烟气分析仪】：<01 04 02 00 01 78 F0>"></textarea>
                 </div>
             </form>
         </div>

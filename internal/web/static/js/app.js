@@ -3,9 +3,10 @@ let deviceTree = [];
 let registerCache = {};
 let openTabs = [];
 let activeTab = null;
-let dirtyRegisters = new Map();
+// Changes are persisted immediately on edit.
 let expandedNodes = new Set(); // 存储展开的节点ID
 let importInProgress = false;
+let selectedTreeKey = null;
 
 // API functions
 const api = {
@@ -95,7 +96,7 @@ const regTypes = [
     {title: '01线圈Coils', range: '[00001-09999]', fc: 1, min: 1, max: 9999},
     {title: '02离散输入Discrete Inputs', range: '[10001-19999]', fc: 2, min: 10001, max: 19999},
     {title: '04输入寄存器Input Registers', range: '[30001-39999]', fc: 4, min: 30001, max: 39999},
-    {title: '03保持寄存器Holding Registers', range: '[40001-49999]', fc: 3, min: 40001, max: 49999}
+    {title: '03保持寄存器Holding Registers', range: '[40001-105536]', fc: 3, min: 40001, max: 105536}
 ];
 
 const regTypeLabels = {
@@ -108,7 +109,7 @@ const regTypeLabels = {
 function formatRegTypeLabel(rt) {
     const label = regTypeLabels[rt.fc] || {cn: rt.title, en: ''};
     const fcLabel = String(rt.fc).padStart(2, '0');
-    return `<span class="regtype-title">${label.cn}</span><br><span class="regtype-range">${fcLabel}:${label.en}</span>`;
+    return `<span class="regtype-line"><span class="regtype-fc">${fcLabel}</span><span class="regtype-range"> ${label.en}</span> <span class="regtype-title">${label.cn}</span></span>`;
 }
 
 function formatRegTypeTitle(rt) {
@@ -119,6 +120,24 @@ function formatRegTypeTitle(rt) {
 
 function formatSlaveAddr(addr) {
     return String(addr).padStart(2, '0');
+}
+
+function buildTreeKey(type, connId, slaveId, fc) {
+    return [type, connId || '', slaveId || '', fc || ''].join('|');
+}
+
+function applyTreeSelection() {
+    const container = document.getElementById('deviceTree');
+    if (!container) return;
+    container.querySelectorAll('.tree-node-content.selected').forEach(el => el.classList.remove('selected'));
+    if (!selectedTreeKey) return;
+    const selectedEl = container.querySelector(`.tree-node-content[data-key="${selectedTreeKey}"]`);
+    if (selectedEl) selectedEl.classList.add('selected');
+}
+
+function setSelectedTreeKey(key) {
+    selectedTreeKey = key;
+    applyTreeSelection();
 }
 
 function getHostLabel() {
@@ -138,6 +157,33 @@ function formatNumber(value, maxDecimals = 4) {
     const fixed = num.toFixed(maxDecimals);
     const trimmed = fixed.replace(/\.?0+$/, '');
     return trimmed === '-0' ? '0' : trimmed;
+}
+
+function formatHexAddr(addr, fc) {
+    if (addr === null || addr === undefined) return '';
+    const num = Number(addr);
+    if (!Number.isFinite(num)) return '';
+    let base = 1;
+    switch (fc) {
+        case 2:
+            base = 10001;
+            break;
+        case 4:
+            base = 30001;
+            break;
+        case 3:
+            base = 40001;
+            break;
+        case 1:
+        default:
+            base = 1;
+            break;
+    }
+    let offset = Math.trunc(num - base + 1);
+    if (!Number.isFinite(offset) || offset < 1) {
+        offset = Math.trunc(num);
+    }
+    return offset.toString(16).toUpperCase().padStart(4, '0');
 }
 
 function getRegType(startAddr) {
@@ -174,23 +220,26 @@ function renderTree() {
             container.appendChild(endpointEl);
         });
     });
+
+    applyTreeSelection();
 }
 
 function createEndpointNode(conn, slave) {
     const el = document.createElement('div');
     el.className = 'tree-node';
     const slaveNodeId = `${conn.id}-${slave.id}`;
+    const slaveKey = buildTreeKey('slave', conn.id, slave.id);
     const isExpanded = expandedNodes.has(slaveNodeId);
     el.innerHTML = `
-        <div class="tree-node-content" data-type="slave" data-conn-id="${conn.id}" data-id="${slave.id}">
+        <div class="tree-node-content" data-type="slave" data-conn-id="${conn.id}" data-id="${slave.id}" data-key="${slaveKey}">
             <span class="tree-expand">${isExpanded ? '▼' : '▶'}</span>
             <span class="tree-label tree-label-endpoint">
                 <span class="tree-label-main">${slave.name}</span>
                 <span class="tree-label-sub">${getHostLabel()}:${conn.port} 从机地址:${formatSlaveAddr(slave.slaveAddr)}</span>
             </span>
             <div class="tree-actions">
-                <button class="btn btn-sm" onclick="event.stopPropagation(); showAddRegister('${conn.id}', '${slave.id}')">添加</button>
-                <button class="btn btn-sm" onclick="event.stopPropagation(); editDevice('${conn.id}', '${slave.id}')">编辑</button>
+                <button class="btn btn-sm" onclick="event.stopPropagation(); showAddRegister('${conn.id}', '${slave.id}')">添加数据</button>
+                <button class="btn btn-sm" onclick="event.stopPropagation(); copyDevice('${conn.id}', '${slave.id}')">复制</button>
                 <button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); deleteDevice('${conn.id}', '${slave.id}')">删除</button>
             </div>
         </div>
@@ -201,19 +250,26 @@ function createEndpointNode(conn, slave) {
     regTypes.forEach(rt => {
         const rtEl = document.createElement('div');
         rtEl.className = 'tree-node';
+        const rtKey = buildTreeKey('regtype', conn.id, slave.id, rt.fc);
         rtEl.innerHTML = `
-            <div class="tree-node-content" data-type="regtype" data-conn-id="${conn.id}" data-slave-id="${slave.id}" data-fc="${rt.fc}">
+            <div class="tree-node-content" data-type="regtype" data-conn-id="${conn.id}" data-slave-id="${slave.id}" data-fc="${rt.fc}" data-key="${rtKey}">
                 <span class="tree-expand"></span>
                 <span class="tree-label">${formatRegTypeLabel(rt)}</span>
             </div>
         `;
-        rtEl.querySelector('.tree-node-content').onclick = () => openRegisterTab(conn.id, slave, rt);
+        rtEl.querySelector('.tree-node-content').onclick = () => {
+            setSelectedTreeKey(rtKey);
+            openRegisterTab(conn.id, slave, rt);
+        };
         childrenContainer.appendChild(rtEl);
     });
 
     updateRegTypeCounts(conn.id, slave.id, childrenContainer);
 
-    el.querySelector('.tree-node-content').onclick = () => toggleNode(el, slaveNodeId);
+    el.querySelector('.tree-node-content').onclick = () => {
+        setSelectedTreeKey(slaveKey);
+        toggleNodeAndOpen(el, slaveNodeId, conn, slave);
+    };
 
     return el;
 }
@@ -256,11 +312,33 @@ async function updateRegTypeCounts(connId, slaveId, container) {
             if (node) node.style.display = count > 0 ? '' : 'none';
         }
     });
+
+    const hasChildren = Array.from(container.children).some(child => child.style.display !== 'none');
+    const parentNode = container.closest('.tree-node');
+    const parentContent = parentNode?.querySelector('.tree-node-content');
+    const expand = parentContent?.querySelector('.tree-expand');
+    if (expand) {
+        if (hasChildren) {
+            const isCollapsed = container.classList.contains('collapsed');
+            expand.textContent = isCollapsed ? '▶' : '▼';
+        } else {
+            expand.textContent = '';
+            container.classList.add('collapsed');
+        }
+    }
+    if (parentContent) {
+        parentContent.dataset.hasChildren = hasChildren ? '1' : '0';
+    }
 }
 
 function toggleNode(el, nodeId) {
     const children = el.querySelector('.tree-children');
+    const content = el.querySelector('.tree-node-content');
     const expand = el.querySelector('.tree-expand');
+    if (content && content.dataset.hasChildren === '0') {
+        if (expand) expand.textContent = '';
+        return;
+    }
     if (children) {
         const isCollapsed = children.classList.contains('collapsed');
         children.classList.toggle('collapsed');
@@ -276,6 +354,42 @@ function toggleNode(el, nodeId) {
 
         expand.textContent = nowCollapsed ? '▶' : '▼';
     }
+}
+
+async function toggleNodeAndOpen(el, nodeId, conn, slave) {
+    toggleNode(el, nodeId);
+    await openFirstRegTypeIfAny(conn, slave);
+}
+
+async function openFirstRegTypeIfAny(conn, slave) {
+    let regs = registerCache[slave.id];
+    if (!regs) {
+        try {
+            regs = await api.getRegisters(conn.id, slave.id);
+            registerCache[slave.id] = regs;
+        } catch {
+            regs = [];
+        }
+    }
+
+    const counts = {};
+    regTypes.forEach(rt => {
+        counts[rt.fc] = 0;
+    });
+
+    regs.forEach(reg => {
+        const rt = getRegType(reg.startAddr);
+        if (!rt) return;
+        if (rt.fc === 1 || rt.fc === 2) {
+            counts[rt.fc] += Math.floor((reg.hexData.length / 2) * 8);
+        } else {
+            counts[rt.fc] += Math.floor(reg.hexData.length / 4);
+        }
+    });
+
+    const firstRt = regTypes.find(rt => (counts[rt.fc] || 0) > 0);
+    if (!firstRt) return;
+    openRegisterTab(conn.id, slave, firstRt);
 }
 
 // Tab management
@@ -373,7 +487,7 @@ async function loadTabContent(tab) {
     }).slice().sort((a, b) => a.startAddr - b.startAddr);
 
     const isBitType = tab.regType.fc === 1 || tab.regType.fc === 2;
-    const colCount = isBitType ? 4 : 10;
+    const colCount = isBitType ? 5 : 11;
 
     content.innerHTML = `
         <div class="table-wrap">
@@ -381,7 +495,8 @@ async function loadTabContent(tab) {
                 <thead>
                     <tr>
                         <th>地址</th>
-                        <th>${isBitType ? '位' : '十六进制'}</th>
+                        <th>Hex地址</th>
+                        <th>${isBitType ? '位' : 'Hex'}</th>
                         ${isBitType ? '' : '<th>Int16</th><th>UInt16</th><th><div class="th-title">ABCD</div><div class="th-sub">正序/大端</div></th><th><div class="th-title">BADC</div><div class="th-sub">单字反转</div></th><th><div class="th-title">CDAB</div><div class="th-sub">双字反转/PLC顺序</div></th><th><div class="th-title">DCBA</div><div class="th-sub">反转/小端</div></th>'}
                         <th>名称</th>
                         <th>操作</th>
@@ -420,6 +535,7 @@ function renderRegisterRows(regs, tab, isBitType) {
                     html += `
                         <tr class="addr-seg-${segClass}" data-reg-id="${reg.id}" data-bit-idx="${bitIndex}">
                             <td class="addr-cell">${addr}</td>
+                            <td class="addr-hex-cell">${formatHexAddr(addr, tab.regType.fc)}</td>
                             <td>
                                 <input type="checkbox" ${bitVal ? 'checked' : ''}
                                     onchange="updateBit('${tab.connId}', '${tab.slave.id}', '${reg.id}', ${bitIndex}, this.checked)">
@@ -427,7 +543,6 @@ function renderRegisterRows(regs, tab, isBitType) {
                             <td>${name}</td>
                             <td>
                                 <button class="btn-icon" onclick="showEditRegister('${tab.connId}', '${tab.slave.id}', '${reg.id}')">✏️</button>
-                                <button class="btn-icon btn-danger" onclick="deleteRegisterAddr('${tab.connId}', '${tab.slave.id}', '${reg.id}')">🗑️</button>
                             </td>
                         </tr>
                     `;
@@ -466,6 +581,7 @@ function renderRegisterRows(regs, tab, isBitType) {
                 html += `
                     <tr class="addr-seg-${segClass}" data-reg-id="${reg.id}" data-reg-idx="${i}">
                         <td class="addr-cell">${addr}</td>
+                        <td class="addr-hex-cell">${formatHexAddr(addr, tab.regType.fc)}</td>
                         <td>
                             <input type="text" value="${hexVal}" maxlength="4" pattern="[0-9A-Fa-f]{4}"
                                 onchange="updateHex('${tab.connId}', '${tab.slave.id}', '${reg.id}', ${i}, this.value)">
@@ -479,7 +595,7 @@ function renderRegisterRows(regs, tab, isBitType) {
                         <td>${name}</td>
                         <td>
                             ${i === 0 ? `<button class="btn-icon" onclick="showEditRegister('${tab.connId}', '${tab.slave.id}', '${reg.id}')">✏️</button>` : ''}
-                            ${i === 0 ? `<button class="btn-icon btn-danger" onclick="deleteRegisterAddr('${tab.connId}', '${tab.slave.id}', '${reg.id}')">🗑️</button>` : ''}
+                            ${i === 0 ? `` : ''}
                         </td>
                     </tr>
                 `;
@@ -587,7 +703,12 @@ async function updateHex(connId, slaveId, regId, idx, value) {
     const newHex = reg.hexData.substr(0, idx * 4) + value + reg.hexData.substr((idx + 1) * 4);
     reg.hexData = newHex;
 
-    markDirty(regId);
+    try {
+        await api.updateRegister(connId, slaveId, regId, reg);
+    } catch (e) {
+        alert('保存失败: ' + (e.error || e.message));
+        delete registerCache[slaveId];
+    }
     refreshTab();
 }
 
@@ -608,13 +729,13 @@ async function updateBit(connId, slaveId, regId, bitIdx, checked) {
 
     reg.hexData = bytes.map(b => b.toString(16).padStart(2, '0').toUpperCase()).join('');
 
-    markDirty(regId);
+    try {
+        await api.updateRegister(connId, slaveId, regId, reg);
+    } catch (e) {
+        alert('保存失败: ' + (e.error || e.message));
+        delete registerCache[slaveId];
+    }
     refreshTab();
-}
-
-function markDirty(regId) {
-    dirtyRegisters.set(regId, true);
-    document.getElementById('saveBtn').disabled = false;
 }
 
 function refreshTab() {
@@ -623,43 +744,6 @@ function refreshTab() {
         if (tab) loadTabContent(tab);
     }
 }
-
-// Save changes
-document.getElementById('saveBtn').onclick = async () => {
-    const btn = document.getElementById('saveBtn');
-    btn.disabled = true;
-    btn.textContent = '保存中...';
-
-    try {
-        for (const [regId] of dirtyRegisters) {
-            // Find the register
-            for (const slaveId in registerCache) {
-                const reg = registerCache[slaveId].find(r => r.id === regId);
-                if (reg) {
-                    // Find connId
-                    for (const node of deviceTree) {
-                        const slave = node.slaves.find(s => s.id === slaveId);
-                        if (slave) {
-                            await api.updateRegister(node.connection.id, slaveId, regId, reg);
-                            break;
-                        }
-                    }
-                    break;
-                }
-            }
-        }
-
-        dirtyRegisters.clear();
-        btn.textContent = '已保存!';
-        setTimeout(() => {
-            btn.textContent = '保存更改';
-        }, 1500);
-    } catch (e) {
-        alert('保存失败: ' + (e.error || e.message));
-        btn.disabled = false;
-        btn.textContent = '保存更改';
-    }
-};
 
 // Import frames
 const IMPORT_NEW_CONN_VALUE = '__new__';
@@ -691,14 +775,15 @@ document.getElementById('importForm').onsubmit = async (e) => {
         setImportSummary('<div class="summary-status warn">请选择连接。</div>');
         return;
     }
-    if (!rawText.trim()) {
-        setImportSummary('<div class="summary-status warn">请粘贴报文内容。</div>');
+    const isCreatingNew = connId === IMPORT_NEW_CONN_VALUE;
+    const nameInput = document.getElementById('importConnName').value.trim();
+    if (isCreatingNew && !nameInput) {
+        setImportSummary('<div class="summary-status warn">请输入名称。</div>');
         return;
     }
 
     let pendingConn = null;
     if (connId === IMPORT_NEW_CONN_VALUE) {
-        const nameInput = document.getElementById('importConnName').value.trim();
         const portInput = document.getElementById('importConnPort').value;
         const port = portInput ? parseInt(portInput) : getNextPort();
         if (!port || port < 1 || port > 65535) {
@@ -710,30 +795,38 @@ document.getElementById('importForm').onsubmit = async (e) => {
             setImportSummary('<div class="summary-status warn">该端口已存在，请从下拉选择。</div>');
             return;
         }
-        pendingConn = {name: nameInput || `端口${port}`, port};
+        pendingConn = {name: nameInput, port};
     }
 
     importInProgress = true;
     if (submitBtn) {
         submitBtn.disabled = true;
-        submitBtn.textContent = '导入中...';
+        submitBtn.textContent = '保存中...';
     }
 
     try {
         if (pendingConn) {
             const conn = await api.createConnection(pendingConn);
             connId = conn.id;
-            await loadTree();
         }
-        const report = await importFrames(connId, rawText);
-        setImportSummary(renderImportSummary(report));
+        const trimmed = rawText.trim();
+        if (trimmed) {
+            const report = await importFrames(connId, rawText);
+            setImportSummary(renderImportSummary(report));
+        } else {
+            setImportSummary('<div class="summary-status warn">未导入报文</div>');
+        }
+        const createdDefault = await ensureDefaultSlave(connId, pendingConn ? nameInput : '');
+        if (createdDefault && !trimmed) {
+            setImportSummary('<div class="summary-status ok">已新增设备</div>');
+        }
     } catch (err) {
-        setImportSummary('<div class="summary-status warn">导入失败，请查看控制台或日志。</div>');
+        setImportSummary(`<div class="summary-status warn">${formatImportError(err)}</div>`);
     }
 
     if (submitBtn) {
         submitBtn.disabled = false;
-        submitBtn.textContent = '导入';
+        submitBtn.textContent = '保存';
     }
     importInProgress = false;
 };
@@ -741,17 +834,21 @@ document.getElementById('importForm').onsubmit = async (e) => {
 function populateImportConnections() {
     const select = document.getElementById('importConnId');
     select.innerHTML = '';
+    const newOpt = document.createElement('option');
+    newOpt.value = IMPORT_NEW_CONN_VALUE;
+    newOpt.textContent = '----新增----';
+    select.appendChild(newOpt);
     deviceTree.forEach(node => {
         const option = document.createElement('option');
         option.value = node.connection.id;
-        option.textContent = `${node.connection.name} (:${node.connection.port})`;
+        let displayName = node.connection.name || `端口${node.connection.port}`;
+        if (node.slaves && node.slaves.length) {
+            displayName = node.slaves.length === 1 ? node.slaves[0].name : `${node.slaves[0].name} 等`;
+        }
+        option.textContent = `(${node.connection.port}) ${displayName}`;
         select.appendChild(option);
     });
-    const newOpt = document.createElement('option');
-    newOpt.value = IMPORT_NEW_CONN_VALUE;
-    newOpt.textContent = '新建连接...';
-    select.appendChild(newOpt);
-    select.value = deviceTree.length ? deviceTree[0].connection.id : IMPORT_NEW_CONN_VALUE;
+    select.value = IMPORT_NEW_CONN_VALUE;
     toggleImportNewConnFields();
 }
 
@@ -759,8 +856,12 @@ function toggleImportNewConnFields() {
     const isNew = document.getElementById('importConnId').value === IMPORT_NEW_CONN_VALUE;
     const nameGroup = document.getElementById('importNewConnNameGroup');
     const portGroup = document.getElementById('importNewConnPortGroup');
+    const nameInput = document.getElementById('importConnName');
+    const portInput = document.getElementById('importConnPort');
     if (nameGroup) nameGroup.style.display = isNew ? '' : 'none';
     if (portGroup) portGroup.style.display = isNew ? '' : 'none';
+    if (nameInput) nameInput.required = isNew;
+    if (portInput) portInput.required = false;
 }
 
 function setImportSummary(html) {
@@ -769,31 +870,32 @@ function setImportSummary(html) {
 }
 
 function renderImportSummary(report) {
-    const rows = [
-        ['配对数量', report.pairs],
-        ['已处理', report.processed],
-        ['新建从站', report.createdSlaves],
-        ['更新寄存器', report.updatedRegisters],
-        ['新建寄存器', report.createdRegisters],
-        ['忽略写功能码', report.skippedWrites],
-        ['CRC 错误', report.crcErrors],
-        ['解析错误', report.parseErrors],
-        ['未配对发送', report.unmatchedSends],
-        ['未配对接收', report.unmatchedReceives],
-        ['跳过位', report.skippedBits],
-        ['警告', report.warnings]
-    ];
-    const statusText = report.pairs === 0 ? '未识别到有效报文' : '导入完成';
-    const statusClass = report.pairs === 0 ? 'warn' : 'ok';
-    const body = rows.map(([label, value]) => (
-        `<tr><td>${label}</td><td>${value}</td></tr>`
-    )).join('');
-    return `
-        <div class="summary-status ${statusClass}">${statusText}</div>
-        <table class="summary-table">
-            <tbody>${body}</tbody>
-        </table>
-    `;
+    const success = report.processed > 0;
+    const reasons = [];
+    if (!success) {
+        if (report.errors && report.errors.length) {
+            report.errors.forEach(err => reasons.push(err));
+        }
+        if (report.pairs === 0) reasons.push('未识别到有效报文');
+        if (report.crcErrors) reasons.push(`CRC错误 ${report.crcErrors}`);
+        if (report.parseErrors) reasons.push(`解析错误 ${report.parseErrors}`);
+        if (report.unmatchedSends) reasons.push(`发送未配对 ${report.unmatchedSends}`);
+        if (report.unmatchedReceives) reasons.push(`接收未配对 ${report.unmatchedReceives}`);
+        if (report.skippedWrites) reasons.push(`写功能码已忽略 ${report.skippedWrites}`);
+        if (report.warnings) reasons.push(`警告 ${report.warnings}`);
+    }
+    const uniqueReasons = [...new Set(reasons)];
+    const statusText = success ? '导入成功' : (uniqueReasons.length ? `导入失败：${uniqueReasons.join('；')}` : '导入失败');
+    const statusClass = success ? 'ok' : 'warn';
+    return `<div class="summary-status ${statusClass}">${statusText}</div>`;
+}
+
+function formatImportError(err) {
+    if (!err) return '导入失败';
+    if (typeof err === 'string') return `导入失败：${err}`;
+    if (err.error) return `导入失败：${err.error}`;
+    if (err.message) return `导入失败：${err.message}`;
+    return '导入失败';
 }
 
 async function importFrames(connId, rawText) {
@@ -809,10 +911,21 @@ async function importFrames(connId, rawText) {
         unmatchedSends: 0,
         unmatchedReceives: 0,
         skippedBits: 0,
-        warnings: 0
+        warnings: 0,
+        errors: []
     };
 
     await loadTree();
+
+    const selectedNode = deviceTree.find(n => n.connection.id === connId);
+    let preferredName = '';
+    if (selectedNode) {
+        if (selectedNode.slaves.length === 1) {
+            preferredName = selectedNode.slaves[0].name;
+        } else if (selectedNode.slaves.length === 0) {
+            preferredName = selectedNode.connection.name || '';
+        }
+    }
 
     const pairs = parseFramePairs(rawText, report);
     report.pairs = pairs.length;
@@ -862,9 +975,8 @@ async function importFrames(connId, rawText) {
 
         const logicalStart = getLogicalStart(req.functionCode, req.startAddress);
 
-        const slave = await findOrCreateSlave(connId, req.unitId, pair.deviceName, report);
+        const slave = await findOrCreateSlave(connId, req.unitId, preferredName, report);
         if (!slave) {
-            report.parseErrors++;
             continue;
         }
 
@@ -894,6 +1006,16 @@ async function importFrames(connId, rawText) {
     return report;
 }
 
+async function ensureDefaultSlave(connId, nameHint) {
+    await loadTree();
+    const node = deviceTree.find(n => n.connection.id === connId);
+    if (!node || (node.slaves && node.slaves.length)) return false;
+    const baseName = (nameHint || node.connection.name || '从站 1').trim() || '从站 1';
+    await api.createSlave(connId, {name: baseName, slaveAddr: 1});
+    await loadTree();
+    return true;
+}
+
 function parseFramePairs(text, report) {
     const lines = text.split(/\r?\n/);
     const entries = [];
@@ -902,9 +1024,7 @@ function parseFramePairs(text, report) {
         const dirMatch = line.match(/【(发送|接收)】/);
         if (!dirMatch) return;
         const direction = dirMatch[1];
-
-        const parts = [...line.matchAll(/【([^】]+)】/g)].map(m => m[1]);
-        const deviceName = parts.length >= 3 ? parts[2] : (parts.length >= 2 ? parts[1] : 'Unknown');
+        const deviceName = '';
 
         const hexMatch = line.match(/<([^>]+)>/);
         if (!hexMatch) {
@@ -929,7 +1049,7 @@ function parseFramePairs(text, report) {
     const pairs = [];
 
     entries.forEach(entry => {
-        const key = entry.deviceName || 'Unknown';
+        const key = 'default';
         if (entry.direction === '发送') {
             if (!pending.has(key)) pending.set(key, []);
             pending.get(key).push(entry);
@@ -1065,10 +1185,25 @@ function parseRTUResponse(bytes) {
 
 async function findOrCreateSlave(connId, slaveAddr, deviceName, report) {
     let node = deviceTree.find(n => n.connection.id === connId);
-    if (!node) return null;
+    if (!node) {
+        if (report && report.errors) report.errors.push('连接不存在');
+        return null;
+    }
 
     let slave = node.slaves.find(s => s.slaveAddr === slaveAddr);
     if (slave) return slave;
+
+    const normalizedName = (deviceName || '').trim().toLowerCase();
+    if (normalizedName) {
+        const sameNameInConn = node.slaves.find(s => s.name.trim().toLowerCase() === normalizedName);
+        if (sameNameInConn) return sameNameInConn;
+
+        const sameNameNode = deviceTree.find(n => n.slaves.some(s => s.name.trim().toLowerCase() === normalizedName));
+        if (sameNameNode && report && report.errors) {
+            report.errors.push(`设备名称已存在（端口${sameNameNode.connection.port}），请选择对应设备`);
+            return null;
+        }
+    }
 
     const name = deviceName || `从站 ${slaveAddr}`;
     try {
@@ -1079,6 +1214,10 @@ async function findOrCreateSlave(connId, slaveAddr, deviceName, report) {
         slave = node?.slaves.find(s => s.slaveAddr === slaveAddr);
         return slave || null;
     } catch (e) {
+        if (report && report.errors) {
+            const msg = e?.error || e?.message || '创建设备失败';
+            report.errors.push(`创建设备失败：${msg}`);
+        }
         return null;
     }
 }
@@ -1270,15 +1409,18 @@ function closeModal(id) {
 }
 
 // Device CRUD
-document.getElementById('addConnectionBtn').onclick = () => {
-    document.getElementById('connectionModalTitle').textContent = '添加设备';
-    document.getElementById('connId').value = '';
-    document.getElementById('slaveId').value = '';
-    document.getElementById('connName').value = '';
-    document.getElementById('connPort').value = '';
-    document.getElementById('slaveAddr').value = '1';
-    showModal('connectionModal');
-};
+const addConnectionBtn = document.getElementById('addConnectionBtn');
+if (addConnectionBtn) {
+    addConnectionBtn.onclick = () => {
+        document.getElementById('connectionModalTitle').textContent = '添加设备';
+        document.getElementById('connId').value = '';
+        document.getElementById('slaveId').value = '';
+        document.getElementById('connName').value = '';
+        document.getElementById('connPort').value = '';
+        document.getElementById('slaveAddr').value = '1';
+        showModal('connectionModal');
+    };
+}
 
 function editDevice(connId, slaveId) {
     const node = deviceTree.find(n => n.connection.id === connId);
@@ -1294,10 +1436,77 @@ function editDevice(connId, slaveId) {
     showModal('connectionModal');
 }
 
+async function copyDevice(connId, slaveId) {
+    const node = deviceTree.find(n => n.connection.id === connId);
+    const slave = node?.slaves.find(s => s.id === slaveId);
+    if (!node || !slave) {
+        alert('复制失败：未找到设备');
+        return;
+    }
+
+    const newName = buildCopyDeviceName(slave.name);
+    const port = getNextPort();
+    if (!port || port < 1 || port > 65535) {
+        alert('复制失败：无法分配有效端口');
+        return;
+    }
+
+    try {
+        const newConn = await api.createConnection({name: newName, port});
+        const newSlave = await api.createSlave(newConn.id, {
+            name: newName,
+            slaveAddr: slave.slaveAddr
+        });
+
+        let regs = [];
+        try {
+            regs = await api.getRegisters(connId, slaveId);
+        } catch {
+            regs = [];
+        }
+
+        for (const reg of regs) {
+            await api.createRegister(newConn.id, newSlave.id, {
+                startAddr: reg.startAddr,
+                hexData: String(reg.hexData || '').toUpperCase(),
+                names: reg.names || '',
+                coefficients: reg.coefficients || ''
+            });
+        }
+
+        await loadTree();
+    } catch (e) {
+        alert('复制失败：' + (e.error || e.message));
+    }
+}
+
 function getNextPort() {
     if (!deviceTree.length) return 1502;
     const maxPort = Math.max(...deviceTree.map(n => n.connection.port || 0));
     return maxPort + 1;
+}
+
+function normalizeDeviceName(name) {
+    return name.trim().toLowerCase();
+}
+
+function isDuplicateDeviceName(name, excludeSlaveId) {
+    const normalized = normalizeDeviceName(name);
+    if (!normalized) return false;
+    return deviceTree.some(node => (
+        node.slaves.some(slave => slave.id !== excludeSlaveId && normalizeDeviceName(slave.name) === normalized)
+    ));
+}
+
+function buildCopyDeviceName(baseName) {
+    const base = (baseName || '').trim() || '设备';
+    let candidate = `${base}_副本`;
+    if (!isDuplicateDeviceName(candidate)) return candidate;
+    let index = 2;
+    while (isDuplicateDeviceName(`${base}_副本${index}`)) {
+        index++;
+    }
+    return `${base}_副本${index}`;
 }
 
 document.getElementById('connectionForm').onsubmit = async (e) => {
@@ -1324,6 +1533,12 @@ document.getElementById('connectionForm').onsubmit = async (e) => {
     const connId = document.getElementById('connId').value;
     const slaveId = document.getElementById('slaveId').value;
     const slaveName = name || `从站${slaveAddr}`;
+
+    if (isDuplicateDeviceName(slaveName, slaveId)) {
+        alert('设备名称不能重复');
+        document.getElementById('connName').focus();
+        return;
+    }
 
     try {
         if (slaveId) {
@@ -1414,14 +1629,68 @@ async function deleteRegisterAddr(connId, slaveId, regId) {
     }
 }
 
+function setRegisterHexError(message) {
+    const el = document.getElementById('regHexError');
+    if (!el) return;
+    if (message) {
+        el.textContent = message;
+        el.style.display = 'block';
+    } else {
+        el.textContent = '';
+        el.style.display = 'none';
+    }
+}
+
 document.getElementById('registerForm').onsubmit = async (e) => {
     e.preventDefault();
     const connId = document.getElementById('regConnId').value;
     const slaveId = document.getElementById('regSlaveId').value;
     const id = document.getElementById('regId').value;
+    const startAddrVal = document.getElementById('regStartAddr').value;
+    const hexInputEl = document.getElementById('regHexData');
+    const rawHex = hexInputEl.value.trim().toUpperCase();
+    if (!rawHex) {
+        if (id) {
+            setRegisterHexError('清空并保存会删除该寄存器块。');
+            if (!confirm('清空并保存将删除该寄存器块，是否继续？')) {
+                hexInputEl.focus();
+                return;
+            }
+            try {
+                await api.deleteRegister(connId, slaveId, id);
+                closeModal('registerModal');
+                delete registerCache[slaveId];
+                refreshTab();
+                await loadTree();
+            } catch (e) {
+                setRegisterHexError(`删除失败：${e.error || e.message}`);
+            }
+            return;
+        }
+        setRegisterHexError('十六进制数据不能为空。');
+        hexInputEl.focus();
+        return;
+    }
+    const startAddr = parseInt(startAddrVal);
+    const regType = getRegType(startAddr);
+    if (!/^[0-9A-F]+$/.test(rawHex)) {
+        setRegisterHexError('只能输入 0-9、A-F。');
+        hexInputEl.focus();
+        return;
+    }
+    if (regType) {
+        const isBitType = regType.fc === 1 || regType.fc === 2;
+        if ((isBitType && rawHex.length % 2 !== 0) || (!isBitType && rawHex.length % 4 !== 0)) {
+            const hint = isBitType ? '线圈/离散输入需为 2 的倍数字符' : '寄存器需为 4 的倍数字符';
+            setRegisterHexError(`长度不合法：${hint}。`);
+            hexInputEl.focus();
+            return;
+        }
+    }
+    setRegisterHexError('');
     const data = {
-        startAddr: parseInt(document.getElementById('regStartAddr').value),
-        hexData: document.getElementById('regHexData').value.toUpperCase(),
+        startAddr: startAddr,
+        hexData: rawHex,
         names: document.getElementById('regNames').value,
         coefficients: document.getElementById('regCoefficients').value
     };
@@ -1440,6 +1709,10 @@ document.getElementById('registerForm').onsubmit = async (e) => {
         alert('保存失败: ' + (e.error || e.message));
     }
 };
+
+document.getElementById('regHexData').addEventListener('input', () => {
+    setRegisterHexError('');
+});
 
 // Load data
 async function loadTree() {

@@ -444,3 +444,161 @@ func TestReadCoilsBeyondDataRange(t *testing.T) {
 		t.Errorf("Second coil byte = %02X, want 00 (beyond mapped range)", data[1])
 	}
 }
+
+// Write function tests
+
+func TestWriteSingleCoil(t *testing.T) {
+	h, s := setupTestHandler()
+
+	// Write coil at address 0 (logical 1) with ON value (0xFF00)
+	err := h.WriteSingleCoil(1, 0, []byte{0xFF, 0x00})
+	if err != nil {
+		t.Fatalf("WriteSingleCoil failed: %v", err)
+	}
+
+	// Verify the coil was written
+	data, err := h.ReadCoils(1, 0, 8)
+	if err != nil {
+		t.Fatalf("ReadCoils failed: %v", err)
+	}
+	// Original was 0xA5 = 10100101, after setting bit 0, should be 10100101 (already set)
+	// Actually test with OFF value
+	err = h.WriteSingleCoil(1, 0, []byte{0x00, 0x00})
+	if err != nil {
+		t.Fatalf("WriteSingleCoil OFF failed: %v", err)
+	}
+	data, err = h.ReadCoils(1, 0, 8)
+	if err != nil {
+		t.Fatalf("ReadCoils after OFF failed: %v", err)
+	}
+	// 0xA5 = 10100101, after clearing bit 0, should be 10100100 = 0xA4
+	if data[0] != 0xA4 {
+		t.Errorf("Coil after clear = %02X, want A4", data[0])
+	}
+
+	// Verify store is still accessible
+	_ = s
+}
+
+func TestWriteSingleCoilInvalidSlave(t *testing.T) {
+	h, _ := setupTestHandler()
+
+	err := h.WriteSingleCoil(99, 0, []byte{0xFF, 0x00})
+	if err == nil {
+		t.Error("Expected error for invalid slave")
+	}
+}
+
+func TestWriteSingleRegister(t *testing.T) {
+	h, _ := setupTestHandler()
+
+	// Write to holding register at address 0 (logical 40001)
+	err := h.WriteSingleRegister(1, 0, []byte{0xAB, 0xCD})
+	if err != nil {
+		t.Fatalf("WriteSingleRegister failed: %v", err)
+	}
+
+	// Verify the register was written
+	data, err := h.ReadHoldingRegisters(1, 0, 1)
+	if err != nil {
+		t.Fatalf("ReadHoldingRegisters failed: %v", err)
+	}
+	if data[0] != 0xAB || data[1] != 0xCD {
+		t.Errorf("Register = %02X%02X, want ABCD", data[0], data[1])
+	}
+}
+
+func TestWriteSingleRegisterInvalidSlave(t *testing.T) {
+	h, _ := setupTestHandler()
+
+	err := h.WriteSingleRegister(99, 0, []byte{0xAB, 0xCD})
+	if err == nil {
+		t.Error("Expected error for invalid slave")
+	}
+}
+
+func TestWriteMultipleCoils(t *testing.T) {
+	h, _ := setupTestHandler()
+
+	// Write 8 coils at address 0 (logical 1) with 0xFF (all ON)
+	err := h.WriteMultipleCoils(1, 0, 8, []byte{0xFF})
+	if err != nil {
+		t.Fatalf("WriteMultipleCoils failed: %v", err)
+	}
+
+	// Verify the coils were written
+	data, err := h.ReadCoils(1, 0, 8)
+	if err != nil {
+		t.Fatalf("ReadCoils failed: %v", err)
+	}
+	if data[0] != 0xFF {
+		t.Errorf("Coils = %02X, want FF", data[0])
+	}
+}
+
+func TestWriteMultipleCoilsInvalidSlave(t *testing.T) {
+	h, _ := setupTestHandler()
+
+	err := h.WriteMultipleCoils(99, 0, 8, []byte{0xFF})
+	if err == nil {
+		t.Error("Expected error for invalid slave")
+	}
+}
+
+func TestWriteMultipleRegisters(t *testing.T) {
+	h, _ := setupTestHandler()
+
+	// Write 2 registers at address 0 (logical 40001)
+	err := h.WriteMultipleRegisters(1, 0, 2, []byte{0xDE, 0xAD, 0xBE, 0xEF})
+	if err != nil {
+		t.Fatalf("WriteMultipleRegisters failed: %v", err)
+	}
+
+	// Verify the registers were written
+	data, err := h.ReadHoldingRegisters(1, 0, 2)
+	if err != nil {
+		t.Fatalf("ReadHoldingRegisters failed: %v", err)
+	}
+	if data[0] != 0xDE || data[1] != 0xAD || data[2] != 0xBE || data[3] != 0xEF {
+		t.Errorf("Registers = %02X%02X%02X%02X, want DEADBEEF", data[0], data[1], data[2], data[3])
+	}
+}
+
+func TestWriteMultipleRegistersInvalidSlave(t *testing.T) {
+	h, _ := setupTestHandler()
+
+	err := h.WriteMultipleRegisters(99, 0, 2, []byte{0xDE, 0xAD, 0xBE, 0xEF})
+	if err == nil {
+		t.Error("Expected error for invalid slave")
+	}
+}
+
+func TestWriteMultipleRegistersPartialData(t *testing.T) {
+	h, _ := setupTestHandler()
+
+	// Write with less data than quantity specifies (should handle gracefully)
+	err := h.WriteMultipleRegisters(1, 0, 3, []byte{0xDE, 0xAD})
+	if err != nil {
+		t.Fatalf("WriteMultipleRegisters with partial data failed: %v", err)
+	}
+}
+
+func TestWriteBitsUnmappedAddress(t *testing.T) {
+	h, _ := setupTestHandler()
+
+	// Write to unmapped coil address - should succeed (no error on unmapped)
+	err := h.WriteSingleCoil(1, 100, []byte{0xFF, 0x00})
+	if err != nil {
+		t.Fatalf("WriteSingleCoil to unmapped address failed: %v", err)
+	}
+}
+
+func TestWriteRegistersUnmappedAddress(t *testing.T) {
+	h, _ := setupTestHandler()
+
+	// Write to unmapped register address - should succeed (no error on unmapped)
+	err := h.WriteSingleRegister(1, 100, []byte{0xAB, 0xCD})
+	if err != nil {
+		t.Fatalf("WriteSingleRegister to unmapped address failed: %v", err)
+	}
+}

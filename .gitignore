@@ -30,3 +30,11 @@ Thumbs.db
 
 # Ralph logs
 .ralph/logs/
+
+# Local dev artifacts
+.gocache/
+.tmp/
+.server.log
+modbus.db
+.playwright-mcp/
+.codex/

@@ -63,6 +63,25 @@ func writeError(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, ErrorResponse{Error: message})
 }
 
+func (h *APIHandler) isDuplicateSlaveName(name, excludeSlaveID string) bool {
+	normalized := strings.TrimSpace(name)
+	if normalized == "" {
+		return false
+	}
+	for _, conn := range h.store.GetAllConnections() {
+		slaves := h.store.GetSlavesByConnection(conn.ID)
+		for _, slave := range slaves {
+			if slave.ID == excludeSlaveID {
+				continue
+			}
+			if strings.EqualFold(strings.TrimSpace(slave.Name), normalized) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // GetConnectionsTree returns all connections with their slaves
 func (h *APIHandler) GetConnectionsTree(w http.ResponseWriter, r *http.Request) {
 	connections := h.store.GetAllConnections()
@@ -92,6 +111,7 @@ func (h *APIHandler) CreateConnection(w http.ResponseWriter, r *http.Request) {
 		conn.Port = h.nextPort
 		h.nextPort++
 	}
+	conn.ProtocolType = model.ModbusAuto
 
 	if err := h.store.CreateConnection(&conn); err != nil {
 		if err == store.ErrPortInUse {
@@ -129,6 +149,7 @@ func (h *APIHandler) UpdateConnection(w http.ResponseWriter, r *http.Request, id
 
 	conn.ID = id
 	oldPort := oldConn.Port
+	conn.ProtocolType = model.ModbusAuto
 
 	if err := h.store.UpdateConnection(&conn); err != nil {
 		if err == store.ErrPortInUse {
@@ -139,8 +160,8 @@ func (h *APIHandler) UpdateConnection(w http.ResponseWriter, r *http.Request, id
 		return
 	}
 
-	// Restart listener if port or protocol changed
-	if oldPort != conn.Port || oldConn.ProtocolType != conn.ProtocolType {
+	// Restart listener if port changed
+	if oldPort != conn.Port {
 		h.tcpServer.UpdateListener(oldPort, &conn)
 	}
 
@@ -186,6 +207,11 @@ func (h *APIHandler) CreateSlave(w http.ResponseWriter, r *http.Request, connID 
 		return
 	}
 
+	if h.isDuplicateSlaveName(slave.Name, "") {
+		writeError(w, http.StatusBadRequest, "设备名称不能重复")
+		return
+	}
+
 	if err := h.store.CreateSlave(&slave); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -218,6 +244,11 @@ func (h *APIHandler) UpdateSlave(w http.ResponseWriter, r *http.Request, connID,
 
 	if slave.SlaveAddr < 1 || slave.SlaveAddr > 247 {
 		writeError(w, http.StatusBadRequest, "slaveAddr must be 1-247")
+		return
+	}
+
+	if h.isDuplicateSlaveName(slave.Name, slaveID) {
+		writeError(w, http.StatusBadRequest, "设备名称不能重复")
 		return
 	}
 
@@ -255,6 +286,23 @@ func (h *APIHandler) GetRegisters(w http.ResponseWriter, r *http.Request, connID
 
 	registers := h.store.GetRegistersBySlave(slaveID)
 	writeJSON(w, http.StatusOK, registers)
+}
+
+// GetRegister returns a single register
+func (h *APIHandler) GetRegister(w http.ResponseWriter, r *http.Request, connID, slaveID, regID string) {
+	slave, err := h.store.GetSlave(slaveID)
+	if err != nil || slave.ConnID != connID {
+		writeError(w, http.StatusNotFound, "slave not found")
+		return
+	}
+
+	reg, err := h.store.GetRegister(regID)
+	if err != nil || reg.SlaveID != slaveID {
+		writeError(w, http.StatusNotFound, "register not found")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, reg)
 }
 
 // isValidHexData checks if hexData is valid
