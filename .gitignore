@@ -17,9 +17,6 @@
 # Dependency directories
 vendor/
 
-# Test fixtures (local)
-tests/
-
 # IDE
 .idea/
 .vscode/
