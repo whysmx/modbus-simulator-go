@@ -6,7 +6,7 @@
 *.dll
 *.so
 *.dylib
-modbus-simulator
+/modbus-simulator
 
 # Test binary
 *.test
