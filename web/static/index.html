@@ -3,21 +3,28 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Modbus Simulator</title>
+    <title>Modbus 模拟器</title>
+    <link rel="icon" type="image/svg+xml" sizes="any" href="/static/favicon.svg?v=20260202m2">
+    <link rel="shortcut icon" href="/static/favicon.svg?v=20260202m2">
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>Modbus Simulator</h1>
-            <button id="saveBtn" class="btn btn-primary" disabled>Save Changes</button>
+            <h1>Modbus 模拟器</h1>
+            <div class="header-actions">
+                <button id="saveBtn" class="btn btn-primary" disabled>保存更改</button>
+            </div>
         </header>
 
         <main>
             <aside class="tree-panel">
                 <div class="tree-header">
-                    <span>Device Tree</span>
-                    <button id="addConnectionBtn" class="btn btn-sm">+ Connection</button>
+                    <span></span>
+                    <div class="tree-header-actions">
+                        <button id="addConnectionBtn" class="btn btn-sm">+ 设备</button>
+                        <button id="importBtn" class="btn btn-sm">导入报文</button>
+                    </div>
                 </div>
                 <div id="deviceTree" class="device-tree"></div>
             </aside>
@@ -25,7 +32,7 @@
             <section class="content-panel">
                 <div class="tabs" id="tabHeaders"></div>
                 <div class="tab-content" id="tabContent">
-                    <div class="empty-state">Select a register type from the device tree</div>
+                    <div class="empty-state">请从设备树中选择寄存器类型</div>
                 </div>
             </section>
         </main>
@@ -34,50 +41,25 @@
     <!-- Connection Modal -->
     <div id="connectionModal" class="modal">
         <div class="modal-content">
-            <h3 id="connectionModalTitle">Add Connection</h3>
+            <h3 id="connectionModalTitle">添加设备</h3>
             <form id="connectionForm">
                 <input type="hidden" id="connId">
-                <div class="form-group">
-                    <label>Name</label>
-                    <input type="text" id="connName" required>
-                </div>
-                <div class="form-group">
-                    <label>Port</label>
-                    <input type="number" id="connPort" min="1" max="65535">
-                </div>
-                <div class="form-group">
-                    <label>Protocol</label>
-                    <select id="connProtocol">
-                        <option value="0">Modbus RTU over TCP</option>
-                        <option value="1">Modbus TCP</option>
-                    </select>
-                </div>
-                <div class="modal-actions">
-                    <button type="button" class="btn" onclick="closeModal('connectionModal')">Cancel</button>
-                    <button type="submit" class="btn btn-primary">Save</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <!-- Slave Modal -->
-    <div id="slaveModal" class="modal">
-        <div class="modal-content">
-            <h3 id="slaveModalTitle">Add Slave</h3>
-            <form id="slaveForm">
-                <input type="hidden" id="slaveConnId">
                 <input type="hidden" id="slaveId">
                 <div class="form-group">
-                    <label>Name</label>
-                    <input type="text" id="slaveName" required>
+                    <label>名称</label>
+                    <input type="text" id="connName">
                 </div>
                 <div class="form-group">
-                    <label>Slave Address (1-247)</label>
-                    <input type="number" id="slaveAddr" min="1" max="247" required>
+                    <label>端口 (不填则自动分配)</label>
+                    <input type="number" id="connPort" min="1" max="65535" placeholder="不填则自动分配">
+                </div>
+                <div class="form-group">
+                    <label>从机地址（10进制）</label>
+                    <input type="number" id="slaveAddr" min="1" max="247">
                 </div>
                 <div class="modal-actions">
-                    <button type="button" class="btn" onclick="closeModal('slaveModal')">Cancel</button>
-                    <button type="submit" class="btn btn-primary">Save</button>
+                    <button type="button" class="btn" onclick="closeModal('connectionModal')">取消</button>
+                    <button type="submit" class="btn btn-primary">保存</button>
                 </div>
             </form>
         </div>
@@ -86,32 +68,63 @@
     <!-- Register Modal -->
     <div id="registerModal" class="modal">
         <div class="modal-content">
-            <h3 id="registerModalTitle">Add Register</h3>
+            <h3 id="registerModalTitle">添加寄存器</h3>
             <form id="registerForm">
                 <input type="hidden" id="regConnId">
                 <input type="hidden" id="regSlaveId">
                 <input type="hidden" id="regId">
                 <div class="form-group">
-                    <label>Start Address</label>
+                    <label>起始地址</label>
                     <input type="number" id="regStartAddr" required>
-                    <small>1-9999: Coil, 10001-19999: Discrete Input, 30001-39999: Input Reg, 40001-49999: Holding Reg</small>
+                    <small>1-9999: 线圈, 10001-19999: 离散输入, 30001-39999: 输入寄存器, 40001-49999: 保持寄存器</small>
                 </div>
                 <div class="form-group">
-                    <label>Hex Data</label>
+                    <label>十六进制数据</label>
                     <input type="text" id="regHexData" pattern="[0-9A-Fa-f]+" required>
-                    <small>Hex string (0-9, A-F). Register: 4 chars per register. Coil: 2 chars per 8 bits.</small>
+                    <small>十六进制字符串 (0-9, A-F)。寄存器: 每个寄存器 4 个字符。线圈: 每 8 位 2 个字符。</small>
                 </div>
                 <div class="form-group">
-                    <label>Names (comma separated, optional)</label>
+                    <label>名称 (逗号分隔,可选)</label>
                     <input type="text" id="regNames">
                 </div>
                 <div class="form-group">
-                    <label>Coefficients (comma separated, optional)</label>
+                    <label>系数 (逗号分隔,可选)</label>
                     <input type="text" id="regCoefficients">
                 </div>
                 <div class="modal-actions">
-                    <button type="button" class="btn" onclick="closeModal('registerModal')">Cancel</button>
-                    <button type="submit" class="btn btn-primary">Save</button>
+                    <button type="button" class="btn" onclick="closeModal('registerModal')">取消</button>
+                    <button type="submit" class="btn btn-primary">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Import Frames Modal -->
+    <div id="importModal" class="modal">
+        <div class="modal-content">
+            <h3>导入报文</h3>
+            <form id="importForm">
+                <div class="form-group">
+                    <label>连接</label>
+                    <select id="importConnId" required></select>
+                </div>
+                <div class="form-group" id="importNewConnNameGroup" style="display:none;">
+                    <label>名称</label>
+                    <input type="text" id="importConnName" placeholder="如：烟气分析仪">
+                </div>
+                <div class="form-group" id="importNewConnPortGroup" style="display:none;">
+                    <label>端口 (不填则自动分配)</label>
+                    <input type="number" id="importConnPort" min="1" max="65535" placeholder="不填则自动分配">
+                </div>
+                <div class="form-group">
+                    <label>报文</label>
+                    <textarea id="importFrames" rows="10" placeholder="【发送】【15:43:48】【设备名】：<01 04 00 14 00 01 71 CE>"></textarea>
+                    <small>支持格式：【发送/接收】【时间】【设备名】：&lt;HEX...&gt;。自动判断 Modbus TCP/RTU，RTU 必须 CRC 正确。</small>
+                </div>
+                <div id="importSummary" class="import-summary"></div>
+                <div class="modal-actions">
+                    <button type="button" class="btn" onclick="closeModal('importModal')">取消</button>
+                    <button type="submit" class="btn btn-primary">导入</button>
                 </div>
             </form>
         </div>
