@@ -33,6 +33,7 @@ type Register struct {
 	HexData      string `json:"hexData"`
 	Names        string `json:"names"`
 	Coefficients string `json:"coefficients"`
+	JitterAmp    int    `json:"jitterAmp"`
 }
 
 // RegisterType defines the type of Modbus register
@@ -50,6 +51,8 @@ const (
 	maxPDUAddress = 0xFFFF
 	// Max logical address for holding registers (40001 + 65535)
 	maxHoldingAddress = 40001 + maxPDUAddress
+	// MaxJitterAmp is the upper limit for register jitter amplitude.
+	MaxJitterAmp = 0xFFFF
 )
 
 // FunctionCode returns the Modbus function code for reading this register type

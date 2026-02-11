@@ -1325,7 +1325,8 @@ async function applyRegisterUpdate(connId, slaveId, fc, logicalStart, quantity, 
                     startAddr: blockStart,
                     hexData,
                     names: '',
-                    coefficients: ''
+                    coefficients: '',
+                    jitterAmp: 0
                 });
                 createdRegisters++;
                 for (let a = blockStart; a <= blockEnd; a++) {
@@ -1387,7 +1388,8 @@ async function applyRegisterUpdate(connId, slaveId, fc, logicalStart, quantity, 
                     startAddr: segStart,
                     hexData,
                     names: '',
-                    coefficients: ''
+                    coefficients: '',
+                    jitterAmp: 0
                 });
                 createdRegisters++;
             } catch (e) {
@@ -1470,7 +1472,8 @@ async function copyDevice(connId, slaveId) {
                 startAddr: reg.startAddr,
                 hexData: String(reg.hexData || '').toUpperCase(),
                 names: reg.names || '',
-                coefficients: reg.coefficients || ''
+                coefficients: reg.coefficients || '',
+                jitterAmp: Number.isInteger(reg.jitterAmp) ? reg.jitterAmp : parseInt(reg.jitterAmp || 0, 10) || 0
             });
         }
 
@@ -1593,6 +1596,17 @@ function showAddRegister(connId, slaveId) {
     document.getElementById('regHexData').value = '';
     document.getElementById('regNames').value = '';
     document.getElementById('regCoefficients').value = '';
+    const randomEnabledEl = document.getElementById('regRandomEnabled');
+    const jitterAmpEl = document.getElementById('regJitterAmp');
+    if (randomEnabledEl) {
+        randomEnabledEl.checked = false;
+    }
+    if (jitterAmpEl) {
+        jitterAmpEl.value = '5';
+    }
+    toggleRegisterJitterInput(false);
+    setRegisterHexError('');
+    setRegisterJitterError('');
     showModal('registerModal');
 }
 
@@ -1611,6 +1625,19 @@ async function showEditRegister(connId, slaveId, regId) {
         // Handle coefficients - could be array or comma-separated string
         const coeffs = Array.isArray(reg.coefficients) ? reg.coefficients.join(',') : (reg.coefficients || '');
         document.getElementById('regCoefficients').value = coeffs;
+        const randomEnabledEl = document.getElementById('regRandomEnabled');
+        const jitterAmpEl = document.getElementById('regJitterAmp');
+        const jitterAmp = Number.isInteger(reg.jitterAmp) ? reg.jitterAmp : parseInt(reg.jitterAmp || 0, 10);
+        const enabled = !!jitterAmp;
+        if (randomEnabledEl) {
+            randomEnabledEl.checked = enabled;
+        }
+        if (jitterAmpEl) {
+            jitterAmpEl.value = enabled ? String(jitterAmp) : '5';
+        }
+        toggleRegisterJitterInput(enabled);
+        setRegisterHexError('');
+        setRegisterJitterError('');
         showModal('registerModal');
     } catch (e) {
         alert('加载寄存器失败: ' + (e.error || e.message));
@@ -1641,6 +1668,32 @@ function setRegisterHexError(message) {
     }
 }
 
+function setRegisterJitterError(message) {
+    const el = document.getElementById('regJitterError');
+    if (!el) return;
+    if (message) {
+        el.textContent = message;
+        el.style.display = 'block';
+    } else {
+        el.textContent = '';
+        el.style.display = 'none';
+    }
+}
+
+function toggleRegisterJitterInput(enabled, withDefault = false) {
+    const group = document.getElementById('regJitterGroup');
+    const input = document.getElementById('regJitterAmp');
+    if (!group || !input) return;
+
+    group.style.display = enabled ? '' : 'none';
+    if (enabled && withDefault) {
+        input.value = '5';
+    }
+    if (!enabled) {
+        setRegisterJitterError('');
+    }
+}
+
 document.getElementById('registerForm').onsubmit = async (e) => {
     e.preventDefault();
     const connId = document.getElementById('regConnId').value;
@@ -1648,6 +1701,8 @@ document.getElementById('registerForm').onsubmit = async (e) => {
     const id = document.getElementById('regId').value;
     const startAddrVal = document.getElementById('regStartAddr').value;
     const hexInputEl = document.getElementById('regHexData');
+    const randomEnabledEl = document.getElementById('regRandomEnabled');
+    const jitterAmpEl = document.getElementById('regJitterAmp');
     const rawHex = hexInputEl.value.trim().toUpperCase();
     if (!rawHex) {
         if (id) {
@@ -1688,11 +1743,30 @@ document.getElementById('registerForm').onsubmit = async (e) => {
         }
     }
     setRegisterHexError('');
+
+    let jitterAmp = 0;
+    if (randomEnabledEl && randomEnabledEl.checked) {
+        const rawJitter = jitterAmpEl ? jitterAmpEl.value.trim() : '';
+        if (!/^\d+$/.test(rawJitter)) {
+            setRegisterJitterError('请输入 0-65535 的整数。');
+            jitterAmpEl?.focus();
+            return;
+        }
+        jitterAmp = parseInt(rawJitter, 10);
+        if (jitterAmp < 0 || jitterAmp > 65535) {
+            setRegisterJitterError('抖动范围必须在 0-65535 之间。');
+            jitterAmpEl?.focus();
+            return;
+        }
+    }
+    setRegisterJitterError('');
+
     const data = {
         startAddr: startAddr,
         hexData: rawHex,
         names: document.getElementById('regNames').value,
-        coefficients: document.getElementById('regCoefficients').value
+        coefficients: document.getElementById('regCoefficients').value,
+        jitterAmp: jitterAmp
     };
 
     try {
@@ -1712,6 +1786,14 @@ document.getElementById('registerForm').onsubmit = async (e) => {
 
 document.getElementById('regHexData').addEventListener('input', () => {
     setRegisterHexError('');
+});
+
+document.getElementById('regRandomEnabled').addEventListener('change', (e) => {
+    toggleRegisterJitterInput(e.target.checked, e.target.checked);
+});
+
+document.getElementById('regJitterAmp').addEventListener('input', () => {
+    setRegisterJitterError('');
 });
 
 // Load data

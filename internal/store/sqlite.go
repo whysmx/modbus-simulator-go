@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	_ "modernc.org/sqlite"
 
@@ -37,6 +38,7 @@ CREATE TABLE IF NOT EXISTS registers (
 	start_addr INTEGER NOT NULL,
 	hex_data TEXT NOT NULL,
 	names TEXT,
+	jitter_amp INTEGER NOT NULL DEFAULT 0,
 	coefficients TEXT,
 	FOREIGN KEY(slave_id) REFERENCES slaves(id) ON DELETE CASCADE
 );
@@ -54,6 +56,13 @@ func NewSQLite(path string) (*Store, error) {
 	if _, err := db.Exec(sqliteSchema); err != nil {
 		db.Close()
 		return nil, err
+	}
+
+	if _, err := db.Exec(`ALTER TABLE registers ADD COLUMN jitter_amp INTEGER NOT NULL DEFAULT 0`); err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column name") {
+			db.Close()
+			return nil, err
+		}
 	}
 
 	s := &Store{
@@ -122,7 +131,7 @@ func (s *Store) loadFromSQLite() error {
 		return err
 	}
 
-	regRows, err := s.db.Query(`SELECT id, slave_id, start_addr, hex_data, names, coefficients FROM registers`)
+	regRows, err := s.db.Query(`SELECT id, slave_id, start_addr, hex_data, names, coefficients, jitter_amp FROM registers`)
 	if err != nil {
 		return err
 	}
@@ -130,7 +139,7 @@ func (s *Store) loadFromSQLite() error {
 
 	for regRows.Next() {
 		reg := &model.Register{}
-		if err := regRows.Scan(&reg.ID, &reg.SlaveID, &reg.StartAddr, &reg.HexData, &reg.Names, &reg.Coefficients); err != nil {
+		if err := regRows.Scan(&reg.ID, &reg.SlaveID, &reg.StartAddr, &reg.HexData, &reg.Names, &reg.Coefficients, &reg.JitterAmp); err != nil {
 			return err
 		}
 		s.registers[reg.ID] = reg
@@ -232,9 +241,9 @@ func (s *Store) insertRegister(reg *model.Register) error {
 		return errors.New("sqlite not initialized")
 	}
 	_, err := s.db.Exec(
-		`INSERT INTO registers (id, slave_id, start_addr, hex_data, names, coefficients)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		reg.ID, reg.SlaveID, reg.StartAddr, reg.HexData, reg.Names, reg.Coefficients,
+		`INSERT INTO registers (id, slave_id, start_addr, hex_data, names, coefficients, jitter_amp)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		reg.ID, reg.SlaveID, reg.StartAddr, reg.HexData, reg.Names, reg.Coefficients, reg.JitterAmp,
 	)
 	return err
 }
@@ -244,8 +253,8 @@ func (s *Store) updateRegister(reg *model.Register) error {
 		return errors.New("sqlite not initialized")
 	}
 	res, err := s.db.Exec(
-		`UPDATE registers SET start_addr = ?, hex_data = ?, names = ?, coefficients = ? WHERE id = ?`,
-		reg.StartAddr, reg.HexData, reg.Names, reg.Coefficients, reg.ID,
+		`UPDATE registers SET start_addr = ?, hex_data = ?, names = ?, coefficients = ?, jitter_amp = ? WHERE id = ?`,
+		reg.StartAddr, reg.HexData, reg.Names, reg.Coefficients, reg.JitterAmp, reg.ID,
 	)
 	if err != nil {
 		return err

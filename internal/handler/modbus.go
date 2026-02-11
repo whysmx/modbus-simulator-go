@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"crypto/rand"
 	"encoding/hex"
+	"math/big"
 	"strings"
 
 	"github.com/whysmx/modbus-simulator-go/internal/model"
@@ -102,6 +104,7 @@ func (h *ModbusHandler) toLogicalAddress(pduAddr uint16, regType model.RegisterT
 // collectRegisterData collects register data from matching registers
 func (h *ModbusHandler) collectRegisterData(registers []*model.Register, logicalStart, quantity int, regType model.RegisterType) []byte {
 	result := make([]byte, quantity*2)
+	groupDeltaByRegID := make(map[string]int)
 
 	for i := 0; i < quantity; i++ {
 		addr := logicalStart + i
@@ -118,8 +121,22 @@ func (h *ModbusHandler) collectRegisterData(registers []*model.Register, logical
 					hexStr := reg.HexData[offset : offset+4]
 					bytes, err := hex.DecodeString(hexStr)
 					if err == nil && len(bytes) == 2 {
-						result[i*2] = bytes[0]
-						result[i*2+1] = bytes[1]
+						delta, ok := groupDeltaByRegID[reg.ID]
+						if !ok {
+							delta = randomDelta(clampJitterAmp(reg.JitterAmp))
+							groupDeltaByRegID[reg.ID] = delta
+						}
+
+						value := int(bytes[0])<<8 | int(bytes[1])
+						value += delta
+						if value < 0 {
+							value = 0
+						} else if value > 0xFFFF {
+							value = 0xFFFF
+						}
+
+						result[i*2] = byte(value >> 8)
+						result[i*2+1] = byte(value)
 						found = true
 						break
 					}
@@ -138,6 +155,30 @@ func (h *ModbusHandler) collectRegisterData(registers []*model.Register, logical
 	}
 
 	return result
+}
+
+func clampJitterAmp(amp int) int {
+	if amp < 0 {
+		return 0
+	}
+	if amp > model.MaxJitterAmp {
+		return model.MaxJitterAmp
+	}
+	return amp
+}
+
+func randomDelta(amp int) int {
+	if amp <= 0 {
+		return 0
+	}
+
+	rangeSize := int64(amp*2 + 1)
+	n, err := rand.Int(rand.Reader, big.NewInt(rangeSize))
+	if err != nil {
+		return 0
+	}
+
+	return int(n.Int64()) - amp
 }
 
 // collectBitData collects bit data from matching registers

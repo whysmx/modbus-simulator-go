@@ -161,7 +161,7 @@ func TestCreateRegister(t *testing.T) {
 	slave := &model.Slave{ID: "slaveforregisterslaveforregisters", ConnID: conn.ID, Name: "Slave", SlaveAddr: 1}
 	s.CreateSlave(slave)
 
-	body := bytes.NewBufferString(`{"startAddr":40001,"hexData":"1234ABCD"}`)
+	body := bytes.NewBufferString(`{"startAddr":40001,"hexData":"1234ABCD","jitterAmp":5}`)
 	req := httptest.NewRequest("POST", "/api/connections/"+conn.ID+"/slaves/"+slave.ID+"/registers", body)
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -180,6 +180,9 @@ func TestCreateRegister(t *testing.T) {
 	}
 	if reg.HexData != "1234ABCD" {
 		t.Errorf("HexData = %s, want '1234ABCD'", reg.HexData)
+	}
+	if reg.JitterAmp != 5 {
+		t.Errorf("JitterAmp = %d, want 5", reg.JitterAmp)
 	}
 }
 
@@ -754,7 +757,7 @@ func TestUpdateRegister(t *testing.T) {
 	reg := &model.Register{ID: "regtoupdateregtoupdateregtoupda1", SlaveID: slave.ID, StartAddr: 40001, HexData: "1234"}
 	s.CreateRegister(reg)
 
-	body := bytes.NewBufferString(`{"startAddr":40001,"hexData":"ABCD"}`)
+	body := bytes.NewBufferString(`{"startAddr":40001,"hexData":"ABCD","jitterAmp":11}`)
 	req := httptest.NewRequest("PUT", "/api/connections/"+conn.ID+"/slaves/"+slave.ID+"/registers/"+reg.ID, body)
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -763,6 +766,14 @@ func TestUpdateRegister(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("Status = %d, want %d. Body: %s", w.Code, http.StatusOK, w.Body.String())
+	}
+
+	updated, err := s.GetRegister(reg.ID)
+	if err != nil {
+		t.Fatalf("GetRegister failed: %v", err)
+	}
+	if updated.JitterAmp != 11 {
+		t.Errorf("Updated JitterAmp = %d, want 11", updated.JitterAmp)
 	}
 }
 

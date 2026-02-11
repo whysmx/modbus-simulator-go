@@ -326,6 +326,16 @@ func isValidHexData(hexData string, startAddr int) bool {
 	return false
 }
 
+func normalizeJitterAmp(amp int) int {
+	if amp < 0 {
+		return 0
+	}
+	if amp > model.MaxJitterAmp {
+		return model.MaxJitterAmp
+	}
+	return amp
+}
+
 // CreateRegister creates a new register
 func (h *APIHandler) CreateRegister(w http.ResponseWriter, r *http.Request, connID, slaveID string) {
 	existing, err := h.store.GetSlave(slaveID)
@@ -343,6 +353,7 @@ func (h *APIHandler) CreateRegister(w http.ResponseWriter, r *http.Request, conn
 	reg.ID = generateUUID()
 	reg.SlaveID = slaveID
 	reg.HexData = strings.ToUpper(reg.HexData)
+	reg.JitterAmp = normalizeJitterAmp(reg.JitterAmp)
 
 	if !model.IsValidAddress(reg.StartAddr) {
 		writeError(w, http.StatusBadRequest, "invalid startAddr")
@@ -394,6 +405,7 @@ func (h *APIHandler) UpdateRegister(w http.ResponseWriter, r *http.Request, conn
 	reg.ID = regID
 	reg.SlaveID = slaveID
 	reg.HexData = strings.ToUpper(reg.HexData)
+	reg.JitterAmp = normalizeJitterAmp(reg.JitterAmp)
 
 	if !model.IsValidAddress(reg.StartAddr) {
 		writeError(w, http.StatusBadRequest, "invalid startAddr")

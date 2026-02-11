@@ -13,7 +13,7 @@
         <header>
             <div class="header-brand">
                 <h1>Modbus 模拟器</h1>
-                <span class="version-badge">v1.5</span>
+                <span class="version-badge">v1.6</span>
             </div>
         </header>
 
@@ -84,6 +84,22 @@
                     <small>十六进制字符串 (0-9, A-F)。寄存器: 每个寄存器 4 个字符。线圈: 每 8 位 2 个字符。</small>
                     <small class="form-warn">清空并保存会删除该寄存器块。</small>
                     <small class="form-error" id="regHexError" style="display:none"></small>
+                </div>
+                <div class="form-group">
+                    <div class="switch-row">
+                        <label class="toggle-switch" aria-label="随机数开关">
+                            <input type="checkbox" id="regRandomEnabled">
+                            <span class="toggle-slider">
+                                <span class="toggle-text">随机数</span>
+                            </span>
+                        </label>
+                    </div>
+                </div>
+                <div class="form-group" id="regJitterGroup" style="display:none">
+                    <label>抖动幅度</label>
+                    <input type="number" id="regJitterAmp" min="0" max="65535" step="1" value="5">
+                    <small>每个寄存器原生16进制数据的变化范围，非解析结果的变化范围</small>
+                    <small class="form-error" id="regJitterError" style="display:none"></small>
                 </div>
                 <div class="form-group">
                     <label>名称 (逗号分隔,可选)</label>

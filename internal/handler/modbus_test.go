@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/binary"
 	"testing"
 
 	"github.com/whysmx/modbus-simulator-go/internal/model"
@@ -600,5 +601,83 @@ func TestWriteRegistersUnmappedAddress(t *testing.T) {
 	err := h.WriteSingleRegister(1, 100, []byte{0xAB, 0xCD})
 	if err != nil {
 		t.Fatalf("WriteSingleRegister to unmapped address failed: %v", err)
+	}
+}
+
+func TestReadHoldingRegistersJitterRangeAndPerGroupConsistency(t *testing.T) {
+	h, s := setupTestHandler()
+
+	regs := s.GetRegistersBySlave("testslaveidtestslaveidtestslave1")
+	for _, reg := range regs {
+		if reg.StartAddr == 40001 {
+			reg.HexData = "10002000"
+			reg.JitterAmp = 5
+			if err := s.UpdateRegister(reg); err != nil {
+				t.Fatalf("UpdateRegister failed: %v", err)
+			}
+			break
+		}
+	}
+
+	for i := 0; i < 20; i++ {
+		data, err := h.ReadHoldingRegisters(1, 0, 2)
+		if err != nil {
+			t.Fatalf("ReadHoldingRegisters failed: %v", err)
+		}
+		if len(data) != 4 {
+			t.Fatalf("data length = %d, want 4", len(data))
+		}
+
+		v1 := int(binary.BigEndian.Uint16(data[0:2]))
+		v2 := int(binary.BigEndian.Uint16(data[2:4]))
+
+		delta1 := v1 - 0x1000
+		delta2 := v2 - 0x2000
+
+		if delta1 < -5 || delta1 > 5 {
+			t.Fatalf("delta1 out of range: %d", delta1)
+		}
+		if delta2 < -5 || delta2 > 5 {
+			t.Fatalf("delta2 out of range: %d", delta2)
+		}
+		if delta1 != delta2 {
+			t.Fatalf("expected same delta in one group read, got %d and %d", delta1, delta2)
+		}
+	}
+}
+
+func TestReadHoldingRegistersJitterClampedAtBoundary(t *testing.T) {
+	h, s := setupTestHandler()
+
+	regs := s.GetRegistersBySlave("testslaveidtestslaveidtestslave1")
+	for _, reg := range regs {
+		if reg.StartAddr == 40001 {
+			reg.HexData = "0000FFFF"
+			reg.JitterAmp = 5
+			if err := s.UpdateRegister(reg); err != nil {
+				t.Fatalf("UpdateRegister failed: %v", err)
+			}
+			break
+		}
+	}
+
+	for i := 0; i < 20; i++ {
+		data, err := h.ReadHoldingRegisters(1, 0, 2)
+		if err != nil {
+			t.Fatalf("ReadHoldingRegisters failed: %v", err)
+		}
+		if len(data) != 4 {
+			t.Fatalf("data length = %d, want 4", len(data))
+		}
+
+		vLow := int(binary.BigEndian.Uint16(data[0:2]))
+		vHigh := int(binary.BigEndian.Uint16(data[2:4]))
+
+		if vLow < 0 || vLow > 5 {
+			t.Fatalf("low boundary value out of range: %d", vLow)
+		}
+		if vHigh < 65530 || vHigh > 65535 {
+			t.Fatalf("high boundary value out of range: %d", vHigh)
+		}
 	}
 }

@@ -689,11 +689,12 @@ main {
     left: 0;
     width: 100%;
     height: 100%;
-    background: rgba(15, 23, 42, 0.55);
+    background: rgba(15, 23, 42, 0.16);
     z-index: 1000;
     justify-content: center;
     align-items: center;
-    backdrop-filter: blur(6px);
+    backdrop-filter: blur(0.5px);
+    -webkit-backdrop-filter: blur(0.5px);
     padding: 1.5rem;
 }
 
@@ -813,6 +814,96 @@ main {
 .form-group small.form-warn {
     color: #b45309;
     font-weight: 600;
+}
+
+.switch-row {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+}
+
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 128px;
+    height: 28px;
+}
+
+.toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.toggle-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #e5e7eb;
+    transition: .2s;
+    border-radius: 999px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    padding-left: 10px;
+    overflow: hidden;
+    border: 1px solid rgba(15, 106, 99, 0.18);
+}
+
+.toggle-slider:after {
+    content: "";
+    position: absolute;
+    left: 72px;
+    top: 4px;
+    bottom: 4px;
+    width: 1px;
+    background: rgba(15, 23, 42, 0.18);
+}
+
+.toggle-text {
+    color: #334155;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1;
+    user-select: none;
+    pointer-events: none;
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.18);
+}
+
+.toggle-slider:before {
+    position: absolute;
+    content: "";
+    height: 20px;
+    width: 20px;
+    left: 76px;
+    top: 3px;
+    background-color: #fff;
+    transition: .2s;
+    border-radius: 50%;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+}
+
+.toggle-switch input:checked + .toggle-slider {
+    background-color: #0f6a63;
+}
+
+.toggle-switch input:checked + .toggle-slider .toggle-text {
+    color: #ffffff;
+}
+
+.toggle-switch input:checked + .toggle-slider:after {
+    background: rgba(255, 255, 255, 0.35);
+}
+
+.toggle-switch input:checked + .toggle-slider:before {
+    transform: translateX(28px);
+}
+
+.toggle-switch input:focus + .toggle-slider {
+    box-shadow: 0 0 0 3px rgba(15, 106, 99, 0.18);
 }
 
 .modal-actions {
