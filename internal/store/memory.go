@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"errors"
+	"sort"
 	"strings"
 	"sync"
 
@@ -84,6 +85,15 @@ func (s *Store) GetAllConnections() []*model.Connection {
 	for _, conn := range s.connections {
 		result = append(result, conn)
 	}
+	sort.Slice(result, func(i, j int) bool {
+		if cmp := compareDisplayName(result[i].Name, result[j].Name); cmp != 0 {
+			return cmp < 0
+		}
+		if result[i].Port != result[j].Port {
+			return result[i].Port < result[j].Port
+		}
+		return result[i].ID < result[j].ID
+	})
 	return result
 }
 
@@ -191,6 +201,15 @@ func (s *Store) GetSlavesByConnection(connID string) []*model.Slave {
 			result = append(result, slave)
 		}
 	}
+	sort.Slice(result, func(i, j int) bool {
+		if cmp := compareDisplayName(result[i].Name, result[j].Name); cmp != 0 {
+			return cmp < 0
+		}
+		if result[i].SlaveAddr != result[j].SlaveAddr {
+			return result[i].SlaveAddr < result[j].SlaveAddr
+		}
+		return result[i].ID < result[j].ID
+	})
 	return result
 }
 

@@ -209,19 +209,129 @@ function getLogicalStart(fc, pduAddr) {
     }
 }
 
+const deviceNameCollator = new Intl.Collator('zh-Hans-CN', {
+    numeric: true,
+    sensitivity: 'base',
+    ignorePunctuation: true
+});
+
+function setExpandState(expandEl, expanded) {
+    if (!expandEl) return;
+    expandEl.textContent = '›';
+    expandEl.classList.toggle('is-expanded', expanded);
+}
+
+function getDeviceCategoryName(name) {
+    const raw = String(name || '').trim();
+    if (!raw) return '未分类';
+    const match = raw.match(/^[^_\-\s—]+/);
+    return match ? match[0] : raw;
+}
+
+function getFlattenedEndpoints() {
+    const endpoints = [];
+    deviceTree.forEach(node => {
+        node.slaves.forEach(slave => {
+            endpoints.push({
+                connection: node.connection,
+                slave,
+                category: getDeviceCategoryName(slave.name)
+            });
+        });
+    });
+
+    endpoints.sort((a, b) => {
+        const nameCompare = deviceNameCollator.compare(a.slave.name || '', b.slave.name || '');
+        if (nameCompare !== 0) return nameCompare;
+        const portCompare = (a.connection.port || 0) - (b.connection.port || 0);
+        if (portCompare !== 0) return portCompare;
+        const addrCompare = (a.slave.slaveAddr || 0) - (b.slave.slaveAddr || 0);
+        if (addrCompare !== 0) return addrCompare;
+        return (a.slave.id || '').localeCompare(b.slave.id || '');
+    });
+
+    return endpoints;
+}
+
+function compareTreeDisplayNames(aName, bName) {
+    const categoryCompare = deviceNameCollator.compare(
+        getDeviceCategoryName(aName),
+        getDeviceCategoryName(bName)
+    );
+    if (categoryCompare !== 0) return categoryCompare;
+    return deviceNameCollator.compare(aName || '', bName || '');
+}
+
+function getGroupedEndpoints(endpoints) {
+    const groups = [];
+    endpoints.forEach(item => {
+        let group = groups.find(entry => entry.category === item.category);
+        if (!group) {
+            group = {category: item.category, items: []};
+            groups.push(group);
+        }
+        group.items.push(item);
+    });
+    return groups;
+}
+
 // Tree rendering
 function renderTree() {
     const container = document.getElementById('deviceTree');
     container.innerHTML = '';
 
-    deviceTree.forEach(node => {
-        node.slaves.forEach(slave => {
-            const endpointEl = createEndpointNode(node.connection, slave);
-            container.appendChild(endpointEl);
-        });
+    const endpoints = getFlattenedEndpoints();
+    const hasSelectedTreeKey = endpoints.some(item => {
+        const slaveKey = buildTreeKey('slave', item.connection.id, item.slave.id);
+        if (slaveKey === selectedTreeKey) return true;
+        return regTypes.some(rt => buildTreeKey('regtype', item.connection.id, item.slave.id, rt.fc) === selectedTreeKey);
+    });
+    if (!hasSelectedTreeKey) {
+        selectedTreeKey = null;
+    }
+
+    if (!endpoints.length) {
+        container.innerHTML = '<div class="tree-empty">暂无设备</div>';
+        applyTreeSelection();
+        return;
+    }
+
+    const groups = getGroupedEndpoints(endpoints);
+    groups.forEach(group => {
+        const groupEl = createCategoryGroupNode(group);
+        container.appendChild(groupEl);
     });
 
     applyTreeSelection();
+}
+
+function createCategoryGroupNode(group) {
+    const el = document.createElement('div');
+    el.className = 'tree-node tree-node-group';
+    const groupNodeId = `category-${group.category}`;
+    const isExpanded = expandedNodes.has(groupNodeId);
+    el.innerHTML = `
+        <div class="tree-node-content" data-type="category">
+            <span class="tree-expand${isExpanded ? ' is-expanded' : ''}">›</span>
+            <span class="tree-label tree-label-group">
+                <span class="tree-label-group-name">${group.category}</span>
+                <span class="tree-group-count">${group.items.length}</span>
+            </span>
+        </div>
+        <div class="tree-children ${isExpanded ? '' : 'collapsed'}"></div>
+    `;
+
+    const childrenContainer = el.querySelector('.tree-children');
+    group.items.forEach(({connection, slave}) => {
+        const endpointEl = createEndpointNode(connection, slave);
+        childrenContainer.appendChild(endpointEl);
+    });
+
+    el.querySelector('.tree-node-content').onclick = () => {
+        toggleNode(el, groupNodeId);
+    };
+
+    return el;
 }
 
 function createEndpointNode(conn, slave) {
@@ -232,7 +342,7 @@ function createEndpointNode(conn, slave) {
     const isExpanded = expandedNodes.has(slaveNodeId);
     el.innerHTML = `
         <div class="tree-node-content" data-type="slave" data-conn-id="${conn.id}" data-id="${slave.id}" data-key="${slaveKey}">
-            <span class="tree-expand">${isExpanded ? '▼' : '▶'}</span>
+            <span class="tree-expand${isExpanded ? ' is-expanded' : ''}">›</span>
             <span class="tree-label tree-label-endpoint">
                 <span class="tree-label-main">${slave.name}</span>
                 <span class="tree-label-sub">${getHostLabel()}:${conn.port} 从机地址:${formatSlaveAddr(slave.slaveAddr)}</span>
@@ -320,9 +430,10 @@ async function updateRegTypeCounts(connId, slaveId, container) {
     if (expand) {
         if (hasChildren) {
             const isCollapsed = container.classList.contains('collapsed');
-            expand.textContent = isCollapsed ? '▶' : '▼';
+            setExpandState(expand, !isCollapsed);
         } else {
             expand.textContent = '';
+            expand.classList.remove('is-expanded');
             container.classList.add('collapsed');
         }
     }
@@ -352,7 +463,7 @@ function toggleNode(el, nodeId) {
             expandedNodes.add(nodeId);
         }
 
-        expand.textContent = nowCollapsed ? '▶' : '▼';
+        setExpandState(expand, !nowCollapsed);
     }
 }
 
@@ -834,20 +945,37 @@ document.getElementById('importForm').onsubmit = async (e) => {
 function populateImportConnections() {
     const select = document.getElementById('importConnId');
     select.innerHTML = '';
+
     const newOpt = document.createElement('option');
     newOpt.value = IMPORT_NEW_CONN_VALUE;
     newOpt.textContent = '----新增----';
     select.appendChild(newOpt);
-    deviceTree.forEach(node => {
-        const option = document.createElement('option');
-        option.value = node.connection.id;
+
+    const sortedOptions = deviceTree.map(node => {
         let displayName = node.connection.name || `端口${node.connection.port}`;
         if (node.slaves && node.slaves.length) {
             displayName = node.slaves.length === 1 ? node.slaves[0].name : `${node.slaves[0].name} 等`;
         }
-        option.textContent = `(${node.connection.port}) ${displayName}`;
+        return {
+            id: node.connection.id,
+            port: node.connection.port,
+            displayName
+        };
+    });
+
+    sortedOptions.sort((a, b) => {
+        const nameCompare = compareTreeDisplayNames(a.displayName, b.displayName);
+        if (nameCompare !== 0) return nameCompare;
+        return (a.port || 0) - (b.port || 0);
+    });
+
+    sortedOptions.forEach(item => {
+        const option = document.createElement('option');
+        option.value = item.id;
+        option.textContent = `(${item.port}) ${item.displayName}`;
         select.appendChild(option);
     });
+
     select.value = IMPORT_NEW_CONN_VALUE;
     toggleImportNewConnFields();
 }
@@ -1021,7 +1149,7 @@ function parseFramePairs(text, report) {
     const entries = [];
 
     lines.forEach((line, idx) => {
-        const dirMatch = line.match(/【(发送|接收)】/);
+        const dirMatch = line.match(/(发送|接收)/);
         if (!dirMatch) return;
         const direction = dirMatch[1];
         const deviceName = '';
@@ -1808,3 +1936,4 @@ async function loadTree() {
 
 // Init
 loadTree();
+

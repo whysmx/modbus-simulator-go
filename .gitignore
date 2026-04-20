@@ -38,3 +38,9 @@ Thumbs.db
 modbus.db
 .playwright-mcp/
 .codex/
+logs/
+test-results/
+tmp-*.png
+.tmp_compare.go
+* - 副本.db
+winsw.xml

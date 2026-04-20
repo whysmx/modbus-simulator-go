@@ -65,6 +65,98 @@ func TestGetConnectionsTree(t *testing.T) {
 	}
 }
 
+func TestGetConnectionsTreeSorted(t *testing.T) {
+	s := store.New()
+	tcp := &mockTCPServer{}
+	h := NewAPIHandler(s, tcp, 1502)
+
+	conn1 := &model.Connection{ID: "treeconn1treeconn1treeconn1tree", Name: "Conn B", Port: 1502}
+	conn2 := &model.Connection{ID: "treeconn2treeconn2treeconn2tree", Name: "Conn A", Port: 1504}
+	s.CreateConnection(conn1)
+	s.CreateConnection(conn2)
+
+	slave1 := &model.Slave{ID: "treeslave1treeslave1treeslave1tr", ConnID: conn2.ID, Name: "Slave B", SlaveAddr: 3}
+	slave2 := &model.Slave{ID: "treeslave2treeslave2treeslave2tr", ConnID: conn2.ID, Name: "Slave A", SlaveAddr: 9}
+	s.CreateSlave(slave1)
+	s.CreateSlave(slave2)
+
+	req := httptest.NewRequest("GET", "/api/connections/tree", nil)
+	w := httptest.NewRecorder()
+
+	h.GetConnectionsTree(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Status = %d, want %d", w.Code, http.StatusOK)
+	}
+
+	var tree []TreeNode
+	if err := json.NewDecoder(w.Body).Decode(&tree); err != nil {
+		t.Fatalf("Decode failed: %v", err)
+	}
+
+	if len(tree) != 2 {
+		t.Fatalf("Tree length = %d, want 2", len(tree))
+	}
+
+	if tree[0].Connection.Name != "Conn A" || tree[1].Connection.Name != "Conn B" {
+		t.Fatalf("Connections not sorted by name: got [%s %s]", tree[0].Connection.Name, tree[1].Connection.Name)
+	}
+
+	if len(tree[0].Slaves) != 2 {
+		t.Fatalf("Slaves length = %d, want 2", len(tree[0].Slaves))
+	}
+
+	if tree[0].Slaves[0].Name != "Slave A" || tree[0].Slaves[1].Name != "Slave B" {
+		t.Fatalf("Slaves not sorted by name: got [%s %s]", tree[0].Slaves[0].Name, tree[0].Slaves[1].Name)
+	}
+}
+
+func TestGetConnectionsTreeGroupedNaturalSort(t *testing.T) {
+	s := store.New()
+	tcp := &mockTCPServer{}
+	h := NewAPIHandler(s, tcp, 1502)
+
+	conn := &model.Connection{ID: "treegroupconnsorttreegroupconnso", Name: "Parent", Port: 1502}
+	s.CreateConnection(conn)
+
+	slaves := []*model.Slave{
+		{ID: "treegroup1treegroup1treegroup1tr", ConnID: conn.ID, Name: "烟气分析仪_ZT_EM5_JX2", SlaveAddr: 3},
+		{ID: "treegroup2treegroup2treegroup2tr", ConnID: conn.ID, Name: "烟尘分析仪_XZ_SDUST110", SlaveAddr: 2},
+		{ID: "treegroup3treegroup3treegroup3tr", ConnID: conn.ID, Name: "烟气分析仪_ZT_EM5HA", SlaveAddr: 1},
+	}
+	for _, slave := range slaves {
+		s.CreateSlave(slave)
+	}
+
+	req := httptest.NewRequest("GET", "/api/connections/tree", nil)
+	w := httptest.NewRecorder()
+	h.GetConnectionsTree(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Status = %d, want %d", w.Code, http.StatusOK)
+	}
+
+	var tree []TreeNode
+	if err := json.NewDecoder(w.Body).Decode(&tree); err != nil {
+		t.Fatalf("Decode failed: %v", err)
+	}
+
+	if len(tree) != 1 || len(tree[0].Slaves) != 3 {
+		t.Fatalf("Unexpected tree shape: connections=%d slaves=%d", len(tree), len(tree[0].Slaves))
+	}
+
+	want := []string{
+		"烟尘分析仪_XZ_SDUST110",
+		"烟气分析仪_ZT_EM5HA",
+		"烟气分析仪_ZT_EM5_JX2",
+	}
+	for i, name := range want {
+		if tree[0].Slaves[i].Name != name {
+			t.Fatalf("Slave order mismatch at %d: got %s, want %s", i, tree[0].Slaves[i].Name, name)
+		}
+	}
+}
+
 func TestCreateConnection(t *testing.T) {
 	s := store.New()
 	tcp := &mockTCPServer{}
@@ -984,17 +1076,17 @@ func TestIsValidHexData(t *testing.T) {
 		startAddr int
 		expected  bool
 	}{
-		{"1234", 40001, true},       // Holding register, 4 hex chars
-		{"12345678", 40001, true},   // Holding register, 8 hex chars
-		{"123", 40001, false},       // Holding register, wrong length
-		{"AB", 1, true},             // Coil, 2 hex chars
-		{"ABCD", 1, true},           // Coil, 4 hex chars
-		{"A", 1, false},             // Coil, wrong length
-		{"", 40001, false},          // Empty
-		{"GHIJ", 40001, false},      // Invalid hex characters
-		{"abcd", 40001, false},      // Lowercase (not uppercase)
-		{"1234", 30001, true},       // Input register
-		{"12", 10001, true},         // Discrete input
+		{"1234", 40001, true},     // Holding register, 4 hex chars
+		{"12345678", 40001, true}, // Holding register, 8 hex chars
+		{"123", 40001, false},     // Holding register, wrong length
+		{"AB", 1, true},           // Coil, 2 hex chars
+		{"ABCD", 1, true},         // Coil, 4 hex chars
+		{"A", 1, false},           // Coil, wrong length
+		{"", 40001, false},        // Empty
+		{"GHIJ", 40001, false},    // Invalid hex characters
+		{"abcd", 40001, false},    // Lowercase (not uppercase)
+		{"1234", 30001, true},     // Input register
+		{"12", 10001, true},       // Discrete input
 	}
 
 	for _, tt := range tests {

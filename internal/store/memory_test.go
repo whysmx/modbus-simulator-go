@@ -176,6 +176,27 @@ func TestGetAllConnections(t *testing.T) {
 	}
 }
 
+func TestGetAllConnectionsSortedByName(t *testing.T) {
+	s := New()
+
+	conn1 := &model.Connection{ID: "sortconn1sortconn1sortconn1sort", Name: "B设备", Port: 1502}
+	conn2 := &model.Connection{ID: "sortconn2sortconn2sortconn2sort", Name: "A设备", Port: 1504}
+	conn3 := &model.Connection{ID: "sortconn3sortconn3sortconn3sort", Name: "C设备", Port: 1503}
+
+	s.CreateConnection(conn1)
+	s.CreateConnection(conn2)
+	s.CreateConnection(conn3)
+
+	all := s.GetAllConnections()
+	if len(all) != 3 {
+		t.Fatalf("Expected 3 connections, got %d", len(all))
+	}
+
+	if all[0].Name != "A设备" || all[1].Name != "B设备" || all[2].Name != "C设备" {
+		t.Fatalf("Connections not sorted by name: got [%s %s %s]", all[0].Name, all[1].Name, all[2].Name)
+	}
+}
+
 func TestGetSlavesByConnection(t *testing.T) {
 	s := New()
 
@@ -191,6 +212,65 @@ func TestGetSlavesByConnection(t *testing.T) {
 	slaves := s.GetSlavesByConnection(conn.ID)
 	if len(slaves) != 2 {
 		t.Errorf("Expected 2 slaves, got %d", len(slaves))
+	}
+}
+
+func TestGetSlavesByConnectionSortedByName(t *testing.T) {
+	s := New()
+
+	conn := &model.Connection{ID: "sortparentconnsortparentconnsort", Name: "Parent", Port: 1502}
+	s.CreateConnection(conn)
+
+	slave1 := &model.Slave{ID: "sortslave1sortslave1sortslave1so", ConnID: conn.ID, Name: "设备B", SlaveAddr: 2}
+	slave2 := &model.Slave{ID: "sortslave2sortslave2sortslave2so", ConnID: conn.ID, Name: "设备A", SlaveAddr: 10}
+	slave3 := &model.Slave{ID: "sortslave3sortslave3sortslave3so", ConnID: conn.ID, Name: "设备C", SlaveAddr: 7}
+
+	s.CreateSlave(slave1)
+	s.CreateSlave(slave2)
+	s.CreateSlave(slave3)
+
+	slaves := s.GetSlavesByConnection(conn.ID)
+	if len(slaves) != 3 {
+		t.Fatalf("Expected 3 slaves, got %d", len(slaves))
+	}
+
+	if slaves[0].Name != "设备A" || slaves[1].Name != "设备B" || slaves[2].Name != "设备C" {
+		t.Fatalf("Slaves not sorted by name: got [%s %s %s]", slaves[0].Name, slaves[1].Name, slaves[2].Name)
+	}
+}
+
+func TestGetSlavesByConnectionGroupedNaturalSort(t *testing.T) {
+	s := New()
+
+	conn := &model.Connection{ID: "groupconnsortgroupconnsortgroup", Name: "Parent", Port: 1502}
+	s.CreateConnection(conn)
+
+	slaves := []*model.Slave{
+		{ID: "group1group1group1group1group1gr", ConnID: conn.ID, Name: "烟气分析仪_ZT_EM5_JX2", SlaveAddr: 3},
+		{ID: "group2group2group2group2group2gr", ConnID: conn.ID, Name: "烟尘分析仪_XZ_SDUST110", SlaveAddr: 2},
+		{ID: "group3group3group3group3group3gr", ConnID: conn.ID, Name: "烟气分析仪_ZT_EM5HA", SlaveAddr: 1},
+		{ID: "group4group4group4group4group4gr", ConnID: conn.ID, Name: "烟气分析仪_ZT_EM5_JX10", SlaveAddr: 4},
+	}
+	for _, slave := range slaves {
+		s.CreateSlave(slave)
+	}
+
+	got := s.GetSlavesByConnection(conn.ID)
+	if len(got) != 4 {
+		t.Fatalf("Expected 4 slaves, got %d", len(got))
+	}
+
+	want := []string{
+		"烟尘分析仪_XZ_SDUST110",
+		"烟气分析仪_ZT_EM5HA",
+		"烟气分析仪_ZT_EM5_JX2",
+		"烟气分析仪_ZT_EM5_JX10",
+	}
+
+	for i, name := range want {
+		if got[i].Name != name {
+			t.Fatalf("Slave order mismatch at %d: got %s, want %s", i, got[i].Name, name)
+		}
 	}
 }
 
