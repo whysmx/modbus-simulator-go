@@ -3,28 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Modbus 模拟器</title>
+    <title>设备模拟器</title>
     <link rel="icon" type="image/svg+xml" sizes="any" href="/static/favicon.svg?v=20260202m2">
     <link rel="shortcut icon" href="/static/favicon.svg?v=20260202m2">
-    <link rel="stylesheet" href="/static/css/style.css?v=20260415m3">
+    <link rel="stylesheet" href="/static/css/style.css?v=20260423m24">
 </head>
 <body>
     <div class="container">
         <header>
             <div class="header-brand">
-                <h1>Modbus 模拟器</h1>
-                <span class="version-badge">v1.6</span>
+                <h1>设备模拟器</h1>
+                <span class="version-badge">v2.0</span>
             </div>
+            <div class="header-actions" id="headerActions"></div>
         </header>
 
         <main>
             <aside class="tree-panel">
-                <div class="tree-header">
-                    <span></span>
-                    <div class="tree-header-actions">
-                        <button id="importBtn" class="btn btn-sm">编辑</button>
-                    </div>
-                </div>
                 <div class="tree-body">
                     <div id="deviceTree" class="device-tree"></div>
                 </div>
@@ -123,7 +118,7 @@
     <div id="importModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3>编辑</h3>
+                <h3 id="importModalTitle">编辑</h3>
                 <div class="modal-header-actions">
                     <button type="button" class="btn" onclick="closeModal('importModal')">取消</button>
                     <button type="submit" class="btn btn-primary" form="importForm">保存</button>
@@ -132,7 +127,7 @@
             <div id="importSummary" class="import-summary"></div>
             <form id="importForm">
                 <div class="form-group">
-                    <label>设备<span class="required">*</span> <span class="label-hint">(可下拉选择已有设备)</span></label>
+                    <label id="importConnLabel">设备<span class="required">*</span> <span class="label-hint">(可下拉选择已有设备)</span></label>
                     <select id="importConnId" required></select>
                 </div>
                 <div class="form-group" id="importNewConnNameGroup" style="display:none;">
@@ -144,14 +139,29 @@
                     <input type="number" id="importConnPort" min="1" max="65535" placeholder="不填则自动分配">
                 </div>
                 <div class="form-group">
-                    <label>从报文导入数据 <span class="label-hint">(新增或更新寄存器数据)</span></label>
-                    <small class="hint-strong">打开设备调试窗口，点击 <strong>获取数据</strong>/<strong>获取状态</strong>/<strong>获取报警</strong>/<strong>获取时间</strong> 将全部报文复制到这里：</small>
+                    <label id="importFramesLabel">从报文导入数据 <span class="label-hint">(新增或更新寄存器数据)</span></label>
+                    <small class="hint-strong" id="importFramesHint">打开设备调试窗口，点击 <strong>获取数据</strong>/<strong>获取状态</strong>/<strong>获取报警</strong>/<strong>获取时间</strong> 将全部报文复制到这里：</small>
                     <textarea id="importFrames" rows="10" placeholder="【发送】【12:12:21】【烟气分析仪】：<01 04 00 14 00 01 71 CE>&#10;【接收】【12:12:22】【烟气分析仪】：<01 04 02 00 01 78 F0>"></textarea>
                 </div>
             </form>
         </div>
     </div>
 
-    <script src="/static/js/app.js?v=20260416m1"></script>
+    <script src="/static/js/app.js?v=20260423m5"></script>
+    <script src="/static/js/private_protocol.js?v=20260423private23"></script>
 </body>
 </html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+

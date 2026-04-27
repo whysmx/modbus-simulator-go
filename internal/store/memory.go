@@ -14,15 +14,17 @@ var (
 	ErrNotFound      = errors.New("not found")
 	ErrAlreadyExists = errors.New("already exists")
 	ErrPortInUse     = errors.New("port already in use")
+	ErrNameInUse     = errors.New("connection name already exists")
 )
 
-// Store provides thread-safe in-memory storage for Modbus entities
+// Store provides thread-safe in-memory storage for Modbus and private protocol entities
 type Store struct {
-	mu          sync.RWMutex
-	db          *sql.DB
-	connections map[string]*model.Connection
-	slaves      map[string]*model.Slave
-	registers   map[string]*model.Register
+	mu               sync.RWMutex
+	db               *sql.DB
+	connections      map[string]*model.Connection
+	slaves           map[string]*model.Slave
+	registers        map[string]*model.Register
+	privateProtocols map[string]*model.PrivateProtocol // keyed by connID
 
 	// Index for quick lookups
 	portToConnID   map[int]string
@@ -33,12 +35,13 @@ type Store struct {
 // New creates a new in-memory store
 func New() *Store {
 	return &Store{
-		connections:    make(map[string]*model.Connection),
-		slaves:         make(map[string]*model.Slave),
-		registers:      make(map[string]*model.Register),
-		portToConnID:   make(map[int]string),
-		connIDToSlaves: make(map[string][]string),
-		slaveToRegs:    make(map[string][]string),
+		connections:      make(map[string]*model.Connection),
+		slaves:           make(map[string]*model.Slave),
+		registers:        make(map[string]*model.Register),
+		privateProtocols: make(map[string]*model.PrivateProtocol),
+		portToConnID:     make(map[int]string),
+		connIDToSlaves:   make(map[string][]string),
+		slaveToRegs:      make(map[string][]string),
 	}
 }
 
@@ -47,6 +50,10 @@ func New() *Store {
 func (s *Store) CreateConnection(conn *model.Connection) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if s.isDuplicateConnectionNameLocked(conn.Name, "") {
+		return ErrNameInUse
+	}
 
 	if _, exists := s.portToConnID[conn.Port]; exists {
 		return ErrPortInUse
@@ -106,6 +113,10 @@ func (s *Store) UpdateConnection(conn *model.Connection) error {
 		return ErrNotFound
 	}
 
+	if s.isDuplicateConnectionNameLocked(conn.Name, conn.ID) {
+		return ErrNameInUse
+	}
+
 	// Check if new port is available (if changed)
 	if old.Port != conn.Port {
 		if existingID, exists := s.portToConnID[conn.Port]; exists && existingID != conn.ID {
@@ -126,6 +137,22 @@ func (s *Store) UpdateConnection(conn *model.Connection) error {
 
 	s.connections[conn.ID] = conn
 	return nil
+}
+
+func (s *Store) isDuplicateConnectionNameLocked(name, excludeConnID string) bool {
+	normalized := strings.TrimSpace(name)
+	if normalized == "" {
+		return false
+	}
+	for _, conn := range s.connections {
+		if conn.ID == excludeConnID {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(conn.Name), normalized) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Store) DeleteConnection(id string) error {
@@ -152,9 +179,59 @@ func (s *Store) DeleteConnection(id string) error {
 		delete(s.slaves, slaveID)
 	}
 	delete(s.connIDToSlaves, id)
+	delete(s.privateProtocols, id)
 
 	delete(s.portToConnID, conn.Port)
 	delete(s.connections, id)
+	return nil
+}
+
+// Private protocol operations
+
+func (s *Store) UpsertPrivateProtocol(pp *model.PrivateProtocol) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.connections[pp.ConnID]; !ok {
+		return ErrNotFound
+	}
+
+	if s.db != nil {
+		if err := s.upsertPrivateProtocol(pp); err != nil {
+			return err
+		}
+	}
+
+	s.privateProtocols[pp.ConnID] = pp
+	return nil
+}
+
+func (s *Store) GetPrivateProtocol(connID string) (*model.PrivateProtocol, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	pp, ok := s.privateProtocols[connID]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return pp, nil
+}
+
+func (s *Store) DeletePrivateProtocol(connID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.privateProtocols[connID]; !ok {
+		return ErrNotFound
+	}
+
+	if s.db != nil {
+		if err := s.deletePrivateProtocol(connID); err != nil {
+			return err
+		}
+	}
+
+	delete(s.privateProtocols, connID)
 	return nil
 }
 

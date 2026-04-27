@@ -36,6 +36,20 @@ const api = {
         const res = await fetch(`/api/connections/${id}`, {method: 'DELETE'});
         if (!res.ok) throw await res.json();
     },
+    async getPrivateProtocol(connId) {
+        const res = await fetch(`/api/connections/${connId}/private-protocol`);
+        if (!res.ok) throw await res.json();
+        return res.json();
+    },
+    async savePrivateProtocol(connId, data) {
+        const res = await fetch(`/api/connections/${connId}/private-protocol`, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        });
+        if (!res.ok) throw await res.json();
+        return res.json();
+    },
     async createSlave(connId, data) {
         const res = await fetch(`/api/connections/${connId}/slaves`, {
             method: 'POST',
@@ -130,14 +144,75 @@ function applyTreeSelection() {
     const container = document.getElementById('deviceTree');
     if (!container) return;
     container.querySelectorAll('.tree-node-content.selected').forEach(el => el.classList.remove('selected'));
-    if (!selectedTreeKey) return;
-    const selectedEl = container.querySelector(`.tree-node-content[data-key="${selectedTreeKey}"]`);
-    if (selectedEl) selectedEl.classList.add('selected');
+    if (selectedTreeKey) {
+        const selectedEl = container.querySelector(`.tree-node-content[data-key="${selectedTreeKey}"]`);
+        if (selectedEl) selectedEl.classList.add('selected');
+    }
+    updateModbusTreeActionState();
 }
 
 function setSelectedTreeKey(key) {
-    selectedTreeKey = key;
+    selectedTreeKey = key || null;
     applyTreeSelection();
+}
+
+function getSelectedModbusTarget() {
+    if (!selectedTreeKey) return null;
+    const [type, connId, slaveId] = String(selectedTreeKey).split('|');
+    if (!['slave', 'regtype'].includes(type) || !connId || !slaveId) return null;
+    const node = deviceTree.find(n => n.connection.id === connId);
+    const slave = node?.slaves.find(s => s.id === slaveId);
+    if (!node || !slave) return null;
+    return {type, connId, slaveId, node, slave};
+}
+
+function ensureModbusTreeFooter() {
+    const panel = document.querySelector('.tree-panel');
+    if (!panel || document.getElementById('modbusTreeFooter')) return;
+    const footer = document.createElement('div');
+    footer.id = 'modbusTreeFooter';
+    footer.className = 'tree-footer modbus-tree-footer';
+    footer.innerHTML = `
+        <div class="tree-footer-actions">
+            <button type="button" class="btn btn-sm" data-modbus-tree-action="add">新增</button>
+            <button type="button" class="btn btn-sm" data-modbus-tree-action="edit">编辑</button>
+            <button type="button" class="btn btn-sm" data-modbus-tree-action="copy">复制</button>
+            <button type="button" class="btn btn-sm btn-danger" data-modbus-tree-action="delete">删除</button>
+        </div>
+    `;
+    footer.addEventListener('click', async (event) => {
+        const btn = event.target.closest('[data-modbus-tree-action]');
+        if (!btn || btn.disabled) return;
+        const action = btn.dataset.modbusTreeAction;
+        if (action === 'add') {
+            openAddDeviceModal();
+            return;
+        }
+        const target = getSelectedModbusTarget();
+        if (!target) return;
+        switch (action) {
+            case 'edit':
+                editDevice(target.connId, target.slaveId);
+                break;
+            case 'copy':
+                await copyDevice(target.connId, target.slaveId);
+                break;
+            case 'delete':
+                await deleteDevice(target.connId, target.slaveId);
+                break;
+        }
+    });
+    panel.appendChild(footer);
+    updateModbusTreeActionState();
+}
+
+function updateModbusTreeActionState() {
+    const footer = document.getElementById('modbusTreeFooter');
+    if (!footer) return;
+    const hasTarget = !!getSelectedModbusTarget();
+    footer.querySelectorAll('[data-modbus-tree-action]').forEach((btn) => {
+        btn.disabled = btn.dataset.modbusTreeAction === 'add' ? false : !hasTarget;
+    });
 }
 
 function getHostLabel() {
@@ -328,6 +403,7 @@ function createCategoryGroupNode(group) {
     });
 
     el.querySelector('.tree-node-content').onclick = () => {
+        setSelectedTreeKey(null);
         toggleNode(el, groupNodeId);
     };
 
@@ -347,11 +423,6 @@ function createEndpointNode(conn, slave) {
                 <span class="tree-label-main">${slave.name}</span>
                 <span class="tree-label-sub">${getHostLabel()}:${conn.port} 从机地址:${formatSlaveAddr(slave.slaveAddr)}</span>
             </span>
-            <div class="tree-actions">
-                <button class="btn btn-sm" onclick="event.stopPropagation(); showAddRegister('${conn.id}', '${slave.id}')">添加数据</button>
-                <button class="btn btn-sm" onclick="event.stopPropagation(); copyDevice('${conn.id}', '${slave.id}')">复制</button>
-                <button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); deleteDevice('${conn.id}', '${slave.id}')">删除</button>
-            </div>
         </div>
         <div class="tree-children ${isExpanded ? '' : 'collapsed'}"></div>
     `;
@@ -618,6 +689,18 @@ async function loadTabContent(tab) {
                 </tbody>
             </table>
         </div>
+        ${renderModbusTableFooter(tab)}
+    `;
+}
+
+function renderModbusTableFooter(tab) {
+    return `
+        <div class="content-footer modbus-table-footer">
+            <div class="content-footer-actions modbus-table-footer-actions">
+                <button type="button" class="btn btn-sm" data-modbus-table-action="add-register" data-conn-id="${tab.connId}" data-slave-id="${tab.slave.id}">添加数据</button>
+                <button type="button" class="btn btn-sm" data-modbus-table-action="import" data-conn-id="${tab.connId}">导入</button>
+            </div>
+        </div>
     `;
 }
 
@@ -858,17 +941,18 @@ function refreshTab() {
 
 // Import frames
 const IMPORT_NEW_CONN_VALUE = '__new__';
+const IMPORT_MODE_MODBUS = 'modbus';
+const IMPORT_MODE_PRIVATE = 'private';
+const APP_VIEW_MODE_KEY = 'app_view_mode';
 
-document.getElementById('importBtn').onclick = () => {
-    populateImportConnections();
-    document.getElementById('importFrames').value = '';
-    const nameEl = document.getElementById('importConnName');
-    if (nameEl) nameEl.value = '';
-    const portEl = document.getElementById('importConnPort');
-    if (portEl) portEl.value = '';
-    setImportSummary('');
-    showModal('importModal');
-};
+const importBtn = document.getElementById('importBtn');
+if (importBtn) {
+    importBtn.onclick = () => {
+        openImportModal(getCurrentImportMode());
+    };
+}
+
+window.openImportModalForPrivate = () => openImportModal(IMPORT_MODE_PRIVATE);
 
 document.getElementById('importConnId').onchange = () => {
     toggleImportNewConnFields();
@@ -878,15 +962,20 @@ document.getElementById('importForm').onsubmit = async (e) => {
     e.preventDefault();
     if (importInProgress) return;
 
-    let connId = document.getElementById('importConnId').value;
+    const importMode = getImportMode();
+    const isPrivateImport = importMode === IMPORT_MODE_PRIVATE;
+    const lockedConnId = !isPrivateImport ? getLockedImportConnId() : '';
+    let connId = isPrivateImport
+        ? getPrivateImportConnId()
+        : (lockedConnId || document.getElementById('importConnId').value);
     const rawText = document.getElementById('importFrames').value;
     const submitBtn = e.submitter;
 
     if (!connId) {
-        setImportSummary('<div class="summary-status warn">请选择连接。</div>');
+        setImportSummary(`<div class="summary-status warn">${isPrivateImport ? '请先选择一个私有协议连接。' : '请选择连接。'}</div>`);
         return;
     }
-    const isCreatingNew = connId === IMPORT_NEW_CONN_VALUE;
+    const isCreatingNew = !isPrivateImport && !lockedConnId && connId === IMPORT_NEW_CONN_VALUE;
     const nameInput = document.getElementById('importConnName').value.trim();
     if (isCreatingNew && !nameInput) {
         setImportSummary('<div class="summary-status warn">请输入名称。</div>');
@@ -894,7 +983,7 @@ document.getElementById('importForm').onsubmit = async (e) => {
     }
 
     let pendingConn = null;
-    if (connId === IMPORT_NEW_CONN_VALUE) {
+    if (isCreatingNew) {
         const portInput = document.getElementById('importConnPort').value;
         const port = portInput ? parseInt(portInput) : getNextPort();
         if (!port || port < 1 || port > 65535) {
@@ -906,13 +995,13 @@ document.getElementById('importForm').onsubmit = async (e) => {
             setImportSummary('<div class="summary-status warn">该端口已存在，请从下拉选择。</div>');
             return;
         }
-        pendingConn = {name: nameInput, port};
+        pendingConn = {name: nameInput, port, serviceType: importMode === IMPORT_MODE_PRIVATE ? 1 : 0};
     }
 
     importInProgress = true;
     if (submitBtn) {
         submitBtn.disabled = true;
-        submitBtn.textContent = '保存中...';
+        submitBtn.textContent = isPrivateImport ? '导入中...' : '保存中...';
     }
 
     try {
@@ -922,14 +1011,27 @@ document.getElementById('importForm').onsubmit = async (e) => {
         }
         const trimmed = rawText.trim();
         if (trimmed) {
-            const report = await importFrames(connId, rawText);
+            const report = importMode === IMPORT_MODE_PRIVATE
+                ? await importPrivateFrames(connId, rawText)
+                : await importFrames(connId, rawText);
             setImportSummary(renderImportSummary(report));
         } else {
-            setImportSummary('<div class="summary-status warn">未导入报文</div>');
+            if (importMode === IMPORT_MODE_PRIVATE && pendingConn) {
+                await ensurePrivateProtocolConfig(connId, pendingConn ? nameInput : '');
+                setImportSummary('<div class="summary-status ok">已新增私有协议连接</div>');
+            } else if (importMode === IMPORT_MODE_PRIVATE) {
+                setImportSummary('<div class="summary-status warn">请粘贴需要导入的报文</div>');
+            } else {
+                setImportSummary('<div class="summary-status warn">未导入报文</div>');
+            }
         }
-        const createdDefault = await ensureDefaultSlave(connId, pendingConn ? nameInput : '');
-        if (createdDefault && !trimmed) {
-            setImportSummary('<div class="summary-status ok">已新增设备</div>');
+        if (importMode !== IMPORT_MODE_PRIVATE) {
+            const createdDefault = await ensureDefaultSlave(connId, pendingConn ? nameInput : '');
+            if (createdDefault && !trimmed) {
+                setImportSummary('<div class="summary-status ok">已新增设备</div>');
+            }
+        } else if (trimmed && window.privateProtocolUI?.refreshData) {
+            await window.privateProtocolUI.refreshData(connId);
         }
     } catch (err) {
         setImportSummary(`<div class="summary-status warn">${formatImportError(err)}</div>`);
@@ -937,21 +1039,25 @@ document.getElementById('importForm').onsubmit = async (e) => {
 
     if (submitBtn) {
         submitBtn.disabled = false;
-        submitBtn.textContent = '保存';
+        submitBtn.textContent = isPrivateImport ? '导入' : '保存';
     }
     importInProgress = false;
 };
 
-function populateImportConnections() {
+function populateImportConnections(mode = getImportMode()) {
     const select = document.getElementById('importConnId');
     select.innerHTML = '';
+    const isPrivate = mode === IMPORT_MODE_PRIVATE;
 
     const newOpt = document.createElement('option');
     newOpt.value = IMPORT_NEW_CONN_VALUE;
-    newOpt.textContent = '----新增----';
+    newOpt.textContent = isPrivate ? '----新增私有协议连接----' : '----新增----';
     select.appendChild(newOpt);
 
-    const sortedOptions = deviceTree.map(node => {
+    const targetServiceType = mode === IMPORT_MODE_PRIVATE ? 1 : 0;
+    const sortedOptions = deviceTree
+        .filter(node => Number(node.connection?.serviceType || 0) === targetServiceType)
+        .map(node => {
         let displayName = node.connection.name || `端口${node.connection.port}`;
         if (node.slaves && node.slaves.length) {
             displayName = node.slaves.length === 1 ? node.slaves[0].name : `${node.slaves[0].name} 等`;
@@ -992,12 +1098,156 @@ function toggleImportNewConnFields() {
     if (portInput) portInput.required = false;
 }
 
+function getCurrentImportMode() {
+    if (window.privateProtocolUI?.isPrivateMode?.()) return IMPORT_MODE_PRIVATE;
+    return localStorage.getItem(APP_VIEW_MODE_KEY) === IMPORT_MODE_PRIVATE ? IMPORT_MODE_PRIVATE : IMPORT_MODE_MODBUS;
+}
+
+function getImportMode() {
+    return document.getElementById('importModal')?.dataset.importMode === IMPORT_MODE_PRIVATE
+        ? IMPORT_MODE_PRIVATE
+        : IMPORT_MODE_MODBUS;
+}
+
+function isImportConnLocked() {
+    return document.getElementById('importModal')?.dataset.importConnLocked === '1';
+}
+
+function getLockedImportConnId() {
+    return isImportConnLocked() ? (document.getElementById('importModal')?.dataset.importConnId || '') : '';
+}
+
+function openImportModal(mode = getCurrentImportMode(), options = {}) {
+    const modal = document.getElementById('importModal');
+    const privateTarget = mode === IMPORT_MODE_PRIVATE
+        ? window.privateProtocolUI?.getActiveConnection?.() || null
+        : null;
+    const lockConn = mode === IMPORT_MODE_PRIVATE || !!options.lockConn;
+    const lockedConnId = mode === IMPORT_MODE_PRIVATE
+        ? (privateTarget?.id || '')
+        : String(options.connId || '').trim();
+    if (lockConn && !lockedConnId) {
+        alert(mode === IMPORT_MODE_PRIVATE ? '请先选择一个私有协议连接' : '请先选择一个设备');
+        return;
+    }
+    if (modal) {
+        modal.dataset.importMode = mode;
+        modal.dataset.importConnId = lockConn ? lockedConnId : '';
+        modal.dataset.importConnLocked = lockConn ? '1' : '';
+    }
+    configureImportModal(mode);
+    if (mode !== IMPORT_MODE_PRIVATE && !lockConn) {
+        populateImportConnections(mode);
+    }
+    document.getElementById('importFrames').value = '';
+    const nameEl = document.getElementById('importConnName');
+    if (nameEl) nameEl.value = '';
+    const portEl = document.getElementById('importConnPort');
+    if (portEl) portEl.value = '';
+    setImportSummary('');
+    showModal('importModal');
+}
+
+function configureImportModal(mode) {
+    const isPrivate = mode === IMPORT_MODE_PRIVATE;
+    const connLocked = !isPrivate && isImportConnLocked();
+    const fixedConn = isPrivate || connLocked;
+    const titleEl = document.getElementById('importModalTitle');
+    const connSelectEl = document.getElementById('importConnId');
+    const connGroupEl = connSelectEl?.closest('.form-group');
+    const connLabelEl = document.getElementById('importConnLabel');
+    const framesLabelEl = document.getElementById('importFramesLabel');
+    const hintEl = document.getElementById('importFramesHint');
+    const framesEl = document.getElementById('importFrames');
+    const submitBtn = document.querySelector('#importModal button[form="importForm"]');
+    const nameGroup = document.getElementById('importNewConnNameGroup');
+    const portGroup = document.getElementById('importNewConnPortGroup');
+    const nameInput = document.getElementById('importConnName');
+    const portInput = document.getElementById('importConnPort');
+
+    if (titleEl) titleEl.textContent = isPrivate ? '导入私有协议报文' : '编辑';
+    if (submitBtn) submitBtn.textContent = isPrivate ? '导入' : '保存';
+    if (connLabelEl) {
+        connLabelEl.innerHTML = isPrivate
+            ? '连接<span class="required">*</span> <span class="label-hint">(可下拉选择已有私有协议连接)</span>'
+            : '设备<span class="required">*</span> <span class="label-hint">(可下拉选择已有设备)</span>';
+    }
+    if (framesLabelEl) {
+        framesLabelEl.innerHTML = isPrivate
+            ? '从报文导入数据 <span class="label-hint">(新增或更新私有协议规则)</span>'
+            : '从报文导入数据 <span class="label-hint">(新增或更新寄存器数据)</span>';
+    }
+    if (hintEl) {
+        hintEl.innerHTML = isPrivate
+            ? '报文将直接导入到当前连接。粘贴调试窗口中的 <strong>发送/接收</strong> 报文，系统会自动配对，并尽量识别导入内容是 <strong>ASCII</strong> 还是 <strong>Hex</strong>。'
+            : '打开设备调试窗口，点击 <strong>获取数据</strong>/<strong>获取状态</strong>/<strong>获取报警</strong>/<strong>获取时间</strong> 将全部报文复制到这里：';
+    }
+    if (framesEl) {
+        framesEl.placeholder = isPrivate
+            ? '【发送】【22:58:39】【高压电离室】：<0D>\n【接收】【22:58:40】【高压电离室】：<2E 30 30 30 30 20 20 20 2E 30 30 30 30 20 0D 0A>'
+            : '【发送】【12:12:21】【烟气分析仪】：<01 04 00 14 00 01 71 CE>\n【接收】【12:12:22】【烟气分析仪】：<01 04 02 00 01 78 F0>';
+    }
+    if (connGroupEl) connGroupEl.style.display = fixedConn ? 'none' : '';
+    if (connSelectEl) connSelectEl.required = !fixedConn;
+    if (fixedConn) {
+        if (nameGroup) nameGroup.style.display = 'none';
+        if (portGroup) portGroup.style.display = 'none';
+        if (nameInput) nameInput.required = false;
+        if (portInput) portInput.required = false;
+    } else {
+        toggleImportNewConnFields();
+    }
+}
+
+function getPrivateImportConnId() {
+    return document.getElementById('importModal')?.dataset.importConnId || '';
+}
+
+const tabContentEl = document.getElementById('tabContent');
+if (tabContentEl) {
+    tabContentEl.addEventListener('click', (event) => {
+        const btn = event.target.closest('[data-modbus-table-action]');
+        if (!btn) return;
+        if (btn.dataset.modbusTableAction === 'add-register') {
+            const connId = btn.dataset.connId || '';
+            const slaveId = btn.dataset.slaveId || '';
+            if (!connId || !slaveId) return;
+            showAddRegister(connId, slaveId);
+            return;
+        }
+        if (btn.dataset.modbusTableAction === 'import') {
+            const connId = btn.dataset.connId || '';
+            if (!connId) return;
+            openImportModal(IMPORT_MODE_MODBUS, {connId, lockConn: true});
+        }
+    });
+}
+
 function setImportSummary(html) {
     const el = document.getElementById('importSummary');
     el.innerHTML = html;
 }
 
 function renderImportSummary(report) {
+    if (report?.mode === IMPORT_MODE_PRIVATE) {
+        const success = report.processed > 0 || report.createdRules > 0 || report.updatedRules > 0;
+        if (success) {
+            const parts = [];
+            if (report.createdRules) parts.push(`新增规则 ${report.createdRules}`);
+            if (report.updatedRules) parts.push(`更新规则 ${report.updatedRules}`);
+            if (report.hexDetected) parts.push(`HEX ${report.hexDetected}`);
+            if (report.asciiDetected) parts.push(`ASCII ${report.asciiDetected}`);
+            return `<div class="summary-status ok">导入成功：${parts.join('，')}</div>`;
+        }
+        const reasons = [];
+        if (report.errors?.length) report.errors.forEach(err => reasons.push(err));
+        if (report.pairs === 0) reasons.push('未识别到有效报文');
+        if (report.parseErrors) reasons.push(`解析错误 ${report.parseErrors}`);
+        if (report.unmatchedSends) reasons.push(`发送未配对 ${report.unmatchedSends}`);
+        if (report.unmatchedReceives) reasons.push(`接收未配对 ${report.unmatchedReceives}`);
+        return `<div class="summary-status warn">导入失败：${(reasons.length ? reasons : ['未识别到有效报文']).join('；')}</div>`;
+    }
+
     const success = report.processed > 0;
     const reasons = [];
     if (!success) {
@@ -1134,6 +1384,79 @@ async function importFrames(connId, rawText) {
     return report;
 }
 
+async function importPrivateFrames(connId, rawText) {
+    const report = {
+        mode: IMPORT_MODE_PRIVATE,
+        pairs: 0,
+        processed: 0,
+        createdRules: 0,
+        updatedRules: 0,
+        parseErrors: 0,
+        unmatchedSends: 0,
+        unmatchedReceives: 0,
+        hexDetected: 0,
+        asciiDetected: 0,
+        errors: []
+    };
+
+    await loadTree();
+
+    const selectedNode = deviceTree.find(n => n.connection.id === connId);
+    const connName = selectedNode?.connection?.name || '';
+
+    let config;
+    try {
+        config = await api.getPrivateProtocol(connId);
+    } catch {
+        config = {name: connName, rules: []};
+    }
+
+    const rules = Array.isArray(config.rules) ? JSON.parse(JSON.stringify(config.rules)) : [];
+    const pairs = parsePrivateFramePairs(rawText, report);
+    report.pairs = pairs.length;
+
+    for (const pair of pairs) {
+        const requestHex = pair.send.hex;
+        const responseHex = pair.receive.hex;
+        if (!requestHex || !responseHex) continue;
+
+        if (pair.send.encoding === 'hex') report.hexDetected++;
+        else report.asciiDetected++;
+        if (pair.receive.encoding === 'hex') report.hexDetected++;
+        else report.asciiDetected++;
+
+        const existingIndex = rules.findIndex(rule => (
+            Number(rule.matchMode || 0) === 0 &&
+            String(rule.requestHex || '').trim().toUpperCase() === requestHex
+        ));
+
+        if (existingIndex >= 0) {
+            rules[existingIndex].responseHex = responseHex;
+            if (!Array.isArray(rules[existingIndex].randomConfig)) {
+                rules[existingIndex].randomConfig = [];
+            }
+            report.updatedRules++;
+        } else {
+            rules.push({
+                name: nextPrivateImportRuleName(rules),
+                matchMode: 0,
+                requestHex,
+                responseHex,
+                randomConfig: []
+            });
+            report.createdRules++;
+        }
+        report.processed++;
+    }
+
+    await api.savePrivateProtocol(connId, {
+        name: config.name || connName,
+        rules
+    });
+
+    return report;
+}
+
 async function ensureDefaultSlave(connId, nameHint) {
     await loadTree();
     const node = deviceTree.find(n => n.connection.id === connId);
@@ -1142,6 +1465,11 @@ async function ensureDefaultSlave(connId, nameHint) {
     await api.createSlave(connId, {name: baseName, slaveAddr: 1});
     await loadTree();
     return true;
+}
+
+async function ensurePrivateProtocolConfig(connId, nameHint) {
+    const name = (nameHint || '').trim();
+    await api.savePrivateProtocol(connId, {name, rules: []});
 }
 
 function parseFramePairs(text, report) {
@@ -1198,6 +1526,85 @@ function parseFramePairs(text, report) {
     }
 
     return pairs;
+}
+
+function parsePrivateFramePairs(text, report) {
+    const entries = [];
+    let cursor = 0;
+
+    while (cursor < text.length) {
+        const nextSend = text.indexOf('【发送】', cursor);
+        const nextReceive = text.indexOf('【接收】', cursor);
+        const candidates = [nextSend, nextReceive].filter(pos => pos >= 0);
+        if (!candidates.length) break;
+
+        const entryStart = Math.min(...candidates);
+        const direction = entryStart === nextSend ? '发送' : '接收';
+        const payloadStart = text.indexOf('<', entryStart);
+        if (payloadStart < 0) {
+            report.parseErrors++;
+            break;
+        }
+        const payloadEnd = text.indexOf('>', payloadStart + 1);
+        if (payloadEnd < 0) {
+            report.parseErrors++;
+            break;
+        }
+
+        const rawPayload = text.slice(payloadStart + 1, payloadEnd);
+        const parsed = parsePrivatePayload(rawPayload);
+        if (!parsed) {
+            report.parseErrors++;
+        } else {
+            entries.push({
+                direction,
+                bytes: parsed.bytes,
+                hex: parsed.hex,
+                encoding: parsed.encoding
+            });
+        }
+        cursor = payloadEnd + 1;
+    }
+
+    const queue = [];
+    const pairs = [];
+    entries.forEach(entry => {
+        if (entry.direction === '发送') {
+            queue.push(entry);
+            return;
+        }
+        if (!queue.length) {
+            report.unmatchedReceives++;
+            return;
+        }
+        const send = queue.shift();
+        pairs.push({send, receive: entry});
+    });
+
+    report.unmatchedSends += queue.length;
+    return pairs;
+}
+
+function parsePrivatePayload(raw) {
+    const compactHex = raw.replace(/\s+/g, '').toUpperCase();
+    if (compactHex && compactHex.length % 2 === 0 && /^[0-9A-F]+$/.test(compactHex)) {
+        const parsed = parseHexPayload(raw);
+        if (!parsed) return null;
+        return {...parsed, encoding: 'hex'};
+    }
+
+    const normalized = raw.replace(/\r/g, '');
+    if (!normalized.length) return null;
+    const bytes = Array.from(new TextEncoder().encode(normalized));
+    const hex = bytes.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join('');
+    return {bytes, hex, encoding: 'ascii'};
+}
+
+function nextPrivateImportRuleName(rules) {
+    const used = new Set((Array.isArray(rules) ? rules : []).map(rule => String(rule?.name || '').trim()));
+    let index = 1;
+    while (used.has(`因子${index}`)) index++;
+    return `因子${index}`;
 }
 
 function parseHexPayload(raw) {
@@ -1539,16 +1946,20 @@ function closeModal(id) {
 }
 
 // Device CRUD
+function openAddDeviceModal() {
+    document.getElementById('connectionModalTitle').textContent = '添加设备';
+    document.getElementById('connId').value = '';
+    document.getElementById('slaveId').value = '';
+    document.getElementById('connName').value = '';
+    document.getElementById('connPort').value = '';
+    document.getElementById('slaveAddr').value = '1';
+    showModal('connectionModal');
+}
+
 const addConnectionBtn = document.getElementById('addConnectionBtn');
 if (addConnectionBtn) {
     addConnectionBtn.onclick = () => {
-        document.getElementById('connectionModalTitle').textContent = '添加设备';
-        document.getElementById('connId').value = '';
-        document.getElementById('slaveId').value = '';
-        document.getElementById('connName').value = '';
-        document.getElementById('connPort').value = '';
-        document.getElementById('slaveAddr').value = '1';
-        showModal('connectionModal');
+        openAddDeviceModal();
     };
 }
 
@@ -1704,7 +2115,6 @@ async function deleteDevice(connId, slaveId) {
 
         const node = deviceTree.find(n => n.connection.id === connId);
         if (node && node.slaves.length <= 1) {
-            await api.deleteConnection(connId);
             closeTabsByConnection(connId);
         }
 
@@ -1935,5 +2345,6 @@ async function loadTree() {
 }
 
 // Init
+ensureModbusTreeFooter();
 loadTree();
 

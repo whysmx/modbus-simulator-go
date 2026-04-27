@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -18,7 +19,8 @@ CREATE TABLE IF NOT EXISTS connections (
 	id TEXT PRIMARY KEY,
 	name TEXT NOT NULL,
 	port INTEGER NOT NULL UNIQUE,
-	protocol_type INTEGER NOT NULL
+	protocol_type INTEGER NOT NULL,
+	service_type INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS slaves (
@@ -44,6 +46,17 @@ CREATE TABLE IF NOT EXISTS registers (
 );
 
 CREATE INDEX IF NOT EXISTS idx_registers_slave ON registers(slave_id);
+
+CREATE TABLE IF NOT EXISTS private_protocols (
+	id TEXT PRIMARY KEY,
+	conn_id TEXT NOT NULL UNIQUE,
+	name TEXT NOT NULL,
+	frame_delimiter_hex TEXT NOT NULL,
+	rules_json TEXT NOT NULL,
+	FOREIGN KEY(conn_id) REFERENCES connections(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_private_protocols_conn ON private_protocols(conn_id);
 `
 
 // NewSQLite creates a new store backed by sqlite and loads existing data.
@@ -58,6 +71,13 @@ func NewSQLite(path string) (*Store, error) {
 		return nil, err
 	}
 
+	if _, err := db.Exec(`ALTER TABLE connections ADD COLUMN service_type INTEGER NOT NULL DEFAULT 0`); err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column name") {
+			db.Close()
+			return nil, err
+		}
+	}
+
 	if _, err := db.Exec(`ALTER TABLE registers ADD COLUMN jitter_amp INTEGER NOT NULL DEFAULT 0`); err != nil {
 		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column name") {
 			db.Close()
@@ -66,13 +86,14 @@ func NewSQLite(path string) (*Store, error) {
 	}
 
 	s := &Store{
-		db:             db,
-		connections:    make(map[string]*model.Connection),
-		slaves:         make(map[string]*model.Slave),
-		registers:      make(map[string]*model.Register),
-		portToConnID:   make(map[int]string),
-		connIDToSlaves: make(map[string][]string),
-		slaveToRegs:    make(map[string][]string),
+		db:               db,
+		connections:      make(map[string]*model.Connection),
+		slaves:           make(map[string]*model.Slave),
+		registers:        make(map[string]*model.Register),
+		privateProtocols: make(map[string]*model.PrivateProtocol),
+		portToConnID:     make(map[int]string),
+		connIDToSlaves:   make(map[string][]string),
+		slaveToRegs:      make(map[string][]string),
 	}
 
 	if err := s.loadFromSQLite(); err != nil {
@@ -95,7 +116,7 @@ func (s *Store) loadFromSQLite() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	connRows, err := s.db.Query(`SELECT id, name, port, protocol_type FROM connections`)
+	connRows, err := s.db.Query(`SELECT id, name, port, protocol_type, service_type FROM connections`)
 	if err != nil {
 		return err
 	}
@@ -103,7 +124,7 @@ func (s *Store) loadFromSQLite() error {
 
 	for connRows.Next() {
 		conn := &model.Connection{}
-		if err := connRows.Scan(&conn.ID, &conn.Name, &conn.Port, &conn.ProtocolType); err != nil {
+		if err := connRows.Scan(&conn.ID, &conn.Name, &conn.Port, &conn.ProtocolType, &conn.ServiceType); err != nil {
 			return err
 		}
 		s.connections[conn.ID] = conn
@@ -149,6 +170,30 @@ func (s *Store) loadFromSQLite() error {
 		return err
 	}
 
+	ppRows, err := s.db.Query(`SELECT id, conn_id, name, frame_delimiter_hex, rules_json FROM private_protocols`)
+	if err != nil {
+		return err
+	}
+	defer ppRows.Close()
+
+	for ppRows.Next() {
+		pp := &model.PrivateProtocol{}
+		var legacyDelimiter string
+		var rulesJSON string
+		if err := ppRows.Scan(&pp.ID, &pp.ConnID, &pp.Name, &legacyDelimiter, &rulesJSON); err != nil {
+			return err
+		}
+		if strings.TrimSpace(rulesJSON) == "" {
+			pp.Rules = []model.PrivateProtocolRule{}
+		} else if err := json.Unmarshal([]byte(rulesJSON), &pp.Rules); err != nil {
+			return fmt.Errorf("load private protocol %s rules: %w", pp.ID, err)
+		}
+		s.privateProtocols[pp.ConnID] = pp
+	}
+	if err := ppRows.Err(); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -157,8 +202,8 @@ func (s *Store) insertConnection(conn *model.Connection) error {
 		return errors.New("sqlite not initialized")
 	}
 	_, err := s.db.Exec(
-		`INSERT INTO connections (id, name, port, protocol_type) VALUES (?, ?, ?, ?)`,
-		conn.ID, conn.Name, conn.Port, conn.ProtocolType,
+		`INSERT INTO connections (id, name, port, protocol_type, service_type) VALUES (?, ?, ?, ?, ?)`,
+		conn.ID, conn.Name, conn.Port, conn.ProtocolType, conn.ServiceType,
 	)
 	return err
 }
@@ -168,8 +213,8 @@ func (s *Store) updateConnection(conn *model.Connection) error {
 		return errors.New("sqlite not initialized")
 	}
 	res, err := s.db.Exec(
-		`UPDATE connections SET name = ?, port = ?, protocol_type = ? WHERE id = ?`,
-		conn.Name, conn.Port, conn.ProtocolType, conn.ID,
+		`UPDATE connections SET name = ?, port = ?, protocol_type = ?, service_type = ? WHERE id = ?`,
+		conn.Name, conn.Port, conn.ProtocolType, conn.ServiceType, conn.ID,
 	)
 	if err != nil {
 		return err
@@ -185,6 +230,45 @@ func (s *Store) deleteConnection(id string) error {
 		return errors.New("sqlite not initialized")
 	}
 	res, err := s.db.Exec(`DELETE FROM connections WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) upsertPrivateProtocol(pp *model.PrivateProtocol) error {
+	if s.db == nil {
+		return errors.New("sqlite not initialized")
+	}
+	rulesJSON, err := json.Marshal(pp.Rules)
+	if err != nil {
+		return err
+	}
+	res, err := s.db.Exec(
+		`UPDATE private_protocols SET id = ?, name = ?, frame_delimiter_hex = ?, rules_json = ? WHERE conn_id = ?`,
+		pp.ID, pp.Name, "", string(rulesJSON), pp.ConnID,
+	)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		return nil
+	}
+	_, err = s.db.Exec(
+		`INSERT INTO private_protocols (id, conn_id, name, frame_delimiter_hex, rules_json) VALUES (?, ?, ?, ?, ?)`,
+		pp.ID, pp.ConnID, pp.Name, "", string(rulesJSON),
+	)
+	return err
+}
+
+func (s *Store) deletePrivateProtocol(connID string) error {
+	if s.db == nil {
+		return errors.New("sqlite not initialized")
+	}
+	res, err := s.db.Exec(`DELETE FROM private_protocols WHERE conn_id = ?`, connID)
 	if err != nil {
 		return err
 	}

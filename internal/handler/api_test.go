@@ -400,6 +400,36 @@ func TestCreateConnectionPortInUse(t *testing.T) {
 	}
 }
 
+func TestCreateConnectionDuplicateName(t *testing.T) {
+	s := store.New()
+	tcp := &mockTCPServer{}
+	h := NewAPIHandler(s, tcp, 1502)
+
+	conn1 := &model.Connection{ID: "dupnamecreate1dupnamecreate1abc", Name: "Conn1", Port: 1502}
+	if err := s.CreateConnection(conn1); err != nil {
+		t.Fatalf("CreateConnection(conn1) failed: %v", err)
+	}
+
+	body := bytes.NewBufferString(`{"name":" conn1 ","port":1503}`)
+	req := httptest.NewRequest("POST", "/api/connections", body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	h.CreateConnection(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("Status = %d, want %d. Body: %s", w.Code, http.StatusBadRequest, w.Body.String())
+	}
+
+	var resp ErrorResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode error response failed: %v", err)
+	}
+	if resp.Error != "connection name already exists" {
+		t.Fatalf("error = %q, want %q", resp.Error, "connection name already exists")
+	}
+}
+
 type failingTCPServer struct {
 	mockTCPServer
 }
@@ -512,6 +542,40 @@ func TestUpdateConnectionPortInUse(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("Status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestUpdateConnectionDuplicateName(t *testing.T) {
+	s := store.New()
+	tcp := &mockTCPServer{}
+	h := NewAPIHandler(s, tcp, 1502)
+
+	conn1 := &model.Connection{ID: "dupnameupdate1dupnameupdate1abc", Name: "Conn1", Port: 1502}
+	conn2 := &model.Connection{ID: "dupnameupdate2dupnameupdate2abc", Name: "Conn2", Port: 1503}
+	if err := s.CreateConnection(conn1); err != nil {
+		t.Fatalf("CreateConnection(conn1) failed: %v", err)
+	}
+	if err := s.CreateConnection(conn2); err != nil {
+		t.Fatalf("CreateConnection(conn2) failed: %v", err)
+	}
+
+	body := bytes.NewBufferString(`{"name":" cOnN1 ","port":1503}`)
+	req := httptest.NewRequest("PUT", "/api/connections/"+conn2.ID, body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	h.UpdateConnection(w, req, conn2.ID)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("Status = %d, want %d. Body: %s", w.Code, http.StatusBadRequest, w.Body.String())
+	}
+
+	var resp ErrorResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode error response failed: %v", err)
+	}
+	if resp.Error != "connection name already exists" {
+		t.Fatalf("error = %q, want %q", resp.Error, "connection name already exists")
 	}
 }
 
@@ -708,6 +772,13 @@ func TestDeleteSlave(t *testing.T) {
 	if w.Code != http.StatusNoContent {
 		t.Errorf("Status = %d, want %d", w.Code, http.StatusNoContent)
 	}
+
+	if _, err := s.GetConnection(conn.ID); err != store.ErrNotFound {
+		t.Fatalf("expected empty connection to be deleted, got %v", err)
+	}
+	if len(tcp.stoppedPorts) != 1 || tcp.stoppedPorts[0] != 1502 {
+		t.Fatalf("expected listener on port 1502 to be stopped, got %v", tcp.stoppedPorts)
+	}
 }
 
 func TestDeleteSlaveNotFound(t *testing.T) {
@@ -725,6 +796,43 @@ func TestDeleteSlaveNotFound(t *testing.T) {
 
 	if w.Code != http.StatusNotFound {
 		t.Errorf("Status = %d, want %d", w.Code, http.StatusNotFound)
+	}
+}
+
+func TestDeleteSlaveKeepsConnectionWhenOthersRemain(t *testing.T) {
+	s := store.New()
+	tcp := &mockTCPServer{}
+	h := NewAPIHandler(s, tcp, 1502)
+
+	conn := &model.Connection{ID: "connfordelslavkeepconnfordelsla", Name: "Conn", Port: 1502}
+	if err := s.CreateConnection(conn); err != nil {
+		t.Fatalf("CreateConnection failed: %v", err)
+	}
+	slave1 := &model.Slave{ID: "slavedelkeep001slavedelkeep001", ConnID: conn.ID, Name: "Slave1", SlaveAddr: 1}
+	slave2 := &model.Slave{ID: "slavedelkeep002slavedelkeep002", ConnID: conn.ID, Name: "Slave2", SlaveAddr: 2}
+	if err := s.CreateSlave(slave1); err != nil {
+		t.Fatalf("CreateSlave(slave1) failed: %v", err)
+	}
+	if err := s.CreateSlave(slave2); err != nil {
+		t.Fatalf("CreateSlave(slave2) failed: %v", err)
+	}
+
+	req := httptest.NewRequest("DELETE", "/api/connections/"+conn.ID+"/slaves/"+slave1.ID, nil)
+	w := httptest.NewRecorder()
+
+	h.DeleteSlave(w, req, conn.ID, slave1.ID)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("Status = %d, want %d", w.Code, http.StatusNoContent)
+	}
+	if _, err := s.GetConnection(conn.ID); err != nil {
+		t.Fatalf("expected connection to remain, got %v", err)
+	}
+	if len(s.GetSlavesByConnection(conn.ID)) != 1 {
+		t.Fatalf("expected 1 slave to remain, got %d", len(s.GetSlavesByConnection(conn.ID)))
+	}
+	if len(tcp.stoppedPorts) != 0 {
+		t.Fatalf("expected listener to keep running, stopped ports: %v", tcp.stoppedPorts)
 	}
 }
 

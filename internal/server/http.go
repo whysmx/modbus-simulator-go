@@ -26,6 +26,7 @@ var (
 	connectionsTreePattern = regexp.MustCompile(`^/api/connections/tree$`)
 	connectionsPattern     = regexp.MustCompile(`^/api/connections$`)
 	connectionPattern      = regexp.MustCompile(`^/api/connections/([a-f0-9]{32})$`)
+	privateProtocolPattern = regexp.MustCompile(`^/api/connections/([a-f0-9]{32})/private-protocol$`)
 	slavesPattern          = regexp.MustCompile(`^/api/connections/([a-f0-9]{32})/slaves$`)
 	slavePattern           = regexp.MustCompile(`^/api/connections/([a-f0-9]{32})/slaves/([a-f0-9]{32})$`)
 	registersPattern       = regexp.MustCompile(`^/api/connections/([a-f0-9]{32})/slaves/([a-f0-9]{32})/registers$`)
@@ -65,6 +66,21 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			return
 		case "DELETE":
 			r.apiHandler.DeleteConnection(w, req, id)
+			return
+		}
+	}
+
+	if matches := privateProtocolPattern.FindStringSubmatch(path); matches != nil {
+		connID := matches[1]
+		switch req.Method {
+		case "GET":
+			r.apiHandler.GetPrivateProtocol(w, req, connID)
+			return
+		case "PUT":
+			r.apiHandler.PutPrivateProtocol(w, req, connID)
+			return
+		case "DELETE":
+			r.apiHandler.DeletePrivateProtocol(w, req, connID)
 			return
 		}
 	}

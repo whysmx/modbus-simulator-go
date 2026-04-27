@@ -1,53 +1,22 @@
-# Modbus Simulator Go
+# modbus-simulator-go 私有 TCP 协议完整变更代码
 
-A lightweight, single-binary Modbus TCP/RTU simulator written in Go.
+这个包包含本次功能涉及的所有完整文件，路径与仓库根目录一致。
 
-## Features
-
-- **Dual Protocol Support**: ModbusTCP and ModbusRTU over TCP
-- **Function Codes**: 01 (Coils), 02 (Discrete Inputs), 03 (Holding Registers), 04 (Input Registers)
-- **Web UI**: Built-in web interface for configuration
-- **Single Binary**: No dependencies, easy deployment
-- **In-Memory Storage**: Fast, with optional JSON export
-
-## Quick Start
+使用方法：
 
 ```bash
-# Build
-go build -o modbus-simulator ./cmd/modbus-simulator
+cd modbus-simulator-go
+# 解压本包后，把文件覆盖到仓库根目录
+cp -R /path/to/modbus_complete_code_bundle/* .
 
-# Run
-./modbus-simulator
+gofmt -w $(find internal -name '*.go')
+node --check web/static/js/private_protocol.js
+node --check internal/web/static/js/private_protocol.js
+go test ./...
 
-# Access web UI at http://localhost:3002
+git add .
+git commit -m "feat: add private TCP protocol support"
+git push origin main
 ```
 
-## Project Structure
-
-```
-├── cmd/modbus-simulator/   # Application entry point
-├── internal/
-│   ├── model/              # Data models (Connection, Slave, Register)
-│   ├── store/              # In-memory storage
-│   ├── protocol/           # Modbus TCP/RTU protocol handling
-│   ├── server/             # HTTP and Modbus TCP servers
-│   └── handler/            # Request handlers
-├── web/
-│   ├── static/             # CSS, JavaScript
-│   └── templates/          # HTML templates
-└── go.mod
-```
-
-## API Endpoints
-
-- `GET /api/connections` - List all connections
-- `POST /api/connections` - Create connection
-- `PUT /api/connections/:id` - Update connection
-- `DELETE /api/connections/:id` - Delete connection
-- `GET /api/connections/:id/slaves` - List slaves
-- `POST /api/connections/:id/slaves` - Create slave
-- ... (more endpoints)
-
-## License
-
-MIT
+注意：我在当前沙箱里无法访问 GitHub 和 Go proxy，所以未能执行完整仓库级 go test，也未能 push。前面暴露过的 GitHub token 请立即撤销并重新生成。

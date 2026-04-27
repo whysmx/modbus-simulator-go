@@ -26,9 +26,9 @@ type TCPServer struct {
 }
 
 type portListener struct {
-	listener     net.Listener
-	connID       string
-	done         chan struct{}
+	listener net.Listener
+	connID   string
+	done     chan struct{}
 }
 
 // NewTCPServer creates a new TCP server manager
@@ -54,16 +54,20 @@ func (s *TCPServer) StartListener(conn *model.Connection) error {
 	}
 
 	pl := &portListener{
-		listener:     listener,
-		connID:       conn.ID,
-		done:         make(chan struct{}),
+		listener: listener,
+		connID:   conn.ID,
+		done:     make(chan struct{}),
 	}
 
 	s.listeners[conn.Port] = pl
 
 	go s.acceptLoop(pl, conn.Port)
 
-	log.Printf("Modbus TCP listener started on port %d (protocol: %s)", conn.Port, protocolName(model.ModbusAuto))
+	if conn.ServiceType == model.ServiceTypePrivateProtocol {
+		log.Printf("Private protocol TCP listener started on port %d", conn.Port)
+	} else {
+		log.Printf("Modbus TCP listener started on port %d (protocol: %s)", conn.Port, protocolName(model.ModbusAuto))
+	}
 	return nil
 }
 
@@ -131,6 +135,12 @@ func (s *TCPServer) acceptLoop(pl *portListener, port int) {
 
 func (s *TCPServer) handleConnection(conn net.Conn, pl *portListener) {
 	defer conn.Close()
+
+	connModel, err := s.store.GetConnection(pl.connID)
+	if err == nil && connModel.ServiceType == model.ServiceTypePrivateProtocol {
+		s.handlePrivateConnection(conn, pl)
+		return
+	}
 
 	h := handler.NewModbusHandler(s.store, pl.connID)
 	buf := make([]byte, 256)

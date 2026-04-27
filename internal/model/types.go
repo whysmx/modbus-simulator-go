@@ -1,6 +1,6 @@
 package model
 
-// ProtocolType defines the Modbus protocol variant
+// ProtocolType defines the Modbus protocol variant.
 type ProtocolType int
 
 const (
@@ -9,12 +9,52 @@ const (
 	ModbusAuto       ProtocolType = 2
 )
 
-// Connection represents a TCP port binding for Modbus communication
+// ServiceType defines the top-level TCP service implemented by a connection.
+type ServiceType int
+
+const (
+	ServiceTypeModbus          ServiceType = 0
+	ServiceTypePrivateProtocol ServiceType = 1
+)
+
+const (
+	PrivateMatchExact    = 0
+	PrivateMatchContains = 1
+)
+
+// Connection represents a TCP port binding. ProtocolType only applies when
+// ServiceType is ServiceTypeModbus.
 type Connection struct {
 	ID           string       `json:"id"`
 	Name         string       `json:"name"`
 	Port         int          `json:"port"`
 	ProtocolType ProtocolType `json:"protocolType"`
+	ServiceType  ServiceType  `json:"serviceType"`
+}
+
+// PrivateProtocol represents the private protocol config for a connection.
+type PrivateProtocol struct {
+	ID     string                `json:"id"`
+	ConnID string                `json:"connId"`
+	Name   string                `json:"name"`
+	Rules  []PrivateProtocolRule `json:"rules"`
+}
+
+// PrivateProtocolRule maps one exact request frame to one response template.
+type PrivateProtocolRule struct {
+	Name         string                `json:"name"`
+	MatchMode    int                   `json:"matchMode"`
+	RequestHex   string                `json:"requestHex"`
+	ResponseHex  string                `json:"responseHex"`
+	RandomConfig []PrivateRandomConfig `json:"randomConfig"`
+}
+
+// PrivateRandomConfig defines one random token replacement in a response template.
+type PrivateRandomConfig struct {
+	Token      string `json:"token"`
+	Min        int    `json:"min"`
+	Max        int    `json:"max"`
+	WidthBytes int    `json:"widthBytes"`
 }
 
 // Slave represents a Modbus slave device

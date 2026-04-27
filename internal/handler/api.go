@@ -53,6 +53,34 @@ type ErrorResponse struct {
 	Error string `json:"error"`
 }
 
+type connectionPayload struct {
+	Name        *string            `json:"name"`
+	Port        *int               `json:"port"`
+	ServiceType *model.ServiceType `json:"serviceType"`
+}
+
+func validServiceType(serviceType model.ServiceType) bool {
+	switch serviceType {
+	case model.ServiceTypeModbus, model.ServiceTypePrivateProtocol:
+		return true
+	default:
+		return false
+	}
+}
+
+func (h *APIHandler) getModbusConnection(w http.ResponseWriter, connID string) (*model.Connection, bool) {
+	conn, err := h.store.GetConnection(connID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "connection not found")
+		return nil, false
+	}
+	if conn.ServiceType == model.ServiceTypePrivateProtocol {
+		writeError(w, http.StatusBadRequest, "private protocol connections do not support Modbus slaves/registers")
+		return nil, false
+	}
+	return conn, true
+}
+
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -99,21 +127,42 @@ func (h *APIHandler) GetConnectionsTree(w http.ResponseWriter, r *http.Request) 
 }
 
 // CreateConnection creates a new connection
+// CreateConnection creates a new connection.
 func (h *APIHandler) CreateConnection(w http.ResponseWriter, r *http.Request) {
-	var conn model.Connection
-	if err := json.NewDecoder(r.Body).Decode(&conn); err != nil {
+	var payload connectionPayload
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 
-	conn.ID = generateUUID()
+	conn := model.Connection{
+		ID:           generateUUID(),
+		ProtocolType: model.ModbusAuto,
+		ServiceType:  model.ServiceTypeModbus,
+	}
+	if payload.Name != nil {
+		conn.Name = *payload.Name
+	}
+	if payload.Port != nil {
+		conn.Port = *payload.Port
+	}
+	if payload.ServiceType != nil {
+		conn.ServiceType = *payload.ServiceType
+	}
+	if !validServiceType(conn.ServiceType) {
+		writeError(w, http.StatusBadRequest, "invalid serviceType")
+		return
+	}
 	if conn.Port == 0 {
 		conn.Port = h.nextPort
 		h.nextPort++
 	}
-	conn.ProtocolType = model.ModbusAuto
 
 	if err := h.store.CreateConnection(&conn); err != nil {
+		if err == store.ErrNameInUse {
+			writeError(w, http.StatusBadRequest, "connection name already exists")
+			return
+		}
 		if err == store.ErrPortInUse {
 			writeError(w, http.StatusBadRequest, "port already in use")
 			return
@@ -122,9 +171,9 @@ func (h *APIHandler) CreateConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Start TCP listener
+	// Start TCP listener.
 	if err := h.tcpServer.StartListener(&conn); err != nil {
-		// Rollback
+		// Rollback.
 		h.store.DeleteConnection(conn.ID)
 		writeError(w, http.StatusBadRequest, "failed to start listener: "+err.Error())
 		return
@@ -134,6 +183,7 @@ func (h *APIHandler) CreateConnection(w http.ResponseWriter, r *http.Request) {
 }
 
 // UpdateConnection updates an existing connection
+// UpdateConnection updates an existing connection.
 func (h *APIHandler) UpdateConnection(w http.ResponseWriter, r *http.Request, id string) {
 	oldConn, err := h.store.GetConnection(id)
 	if err != nil {
@@ -141,17 +191,40 @@ func (h *APIHandler) UpdateConnection(w http.ResponseWriter, r *http.Request, id
 		return
 	}
 
-	var conn model.Connection
-	if err := json.NewDecoder(r.Body).Decode(&conn); err != nil {
+	var payload connectionPayload
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 
+	if payload.ServiceType != nil {
+		if !validServiceType(*payload.ServiceType) {
+			writeError(w, http.StatusBadRequest, "invalid serviceType")
+			return
+		}
+		if *payload.ServiceType != oldConn.ServiceType {
+			writeError(w, http.StatusBadRequest, "serviceType cannot be changed after creation")
+			return
+		}
+	}
+
+	conn := *oldConn
 	conn.ID = id
 	oldPort := oldConn.Port
 	conn.ProtocolType = model.ModbusAuto
+	conn.ServiceType = oldConn.ServiceType
+	if payload.Name != nil {
+		conn.Name = *payload.Name
+	}
+	if payload.Port != nil {
+		conn.Port = *payload.Port
+	}
 
 	if err := h.store.UpdateConnection(&conn); err != nil {
+		if err == store.ErrNameInUse {
+			writeError(w, http.StatusBadRequest, "connection name already exists")
+			return
+		}
 		if err == store.ErrPortInUse {
 			writeError(w, http.StatusBadRequest, "port already in use")
 			return
@@ -160,9 +233,9 @@ func (h *APIHandler) UpdateConnection(w http.ResponseWriter, r *http.Request, id
 		return
 	}
 
-	// Restart listener if port changed
+	// Restart listener if port changed.
 	if oldPort != conn.Port {
-		h.tcpServer.UpdateListener(oldPort, &conn)
+		_ = h.tcpServer.UpdateListener(oldPort, &conn)
 	}
 
 	writeJSON(w, http.StatusOK, conn)
@@ -188,6 +261,10 @@ func (h *APIHandler) DeleteConnection(w http.ResponseWriter, r *http.Request, id
 
 // CreateSlave creates a new slave under a connection
 func (h *APIHandler) CreateSlave(w http.ResponseWriter, r *http.Request, connID string) {
+	if _, ok := h.getModbusConnection(w, connID); !ok {
+		return
+	}
+
 	if _, err := h.store.GetConnection(connID); err != nil {
 		writeError(w, http.StatusNotFound, "connection not found")
 		return
@@ -222,6 +299,10 @@ func (h *APIHandler) CreateSlave(w http.ResponseWriter, r *http.Request, connID 
 
 // UpdateSlave updates an existing slave
 func (h *APIHandler) UpdateSlave(w http.ResponseWriter, r *http.Request, connID, slaveID string) {
+	if _, ok := h.getModbusConnection(w, connID); !ok {
+		return
+	}
+
 	if _, err := h.store.GetConnection(connID); err != nil {
 		writeError(w, http.StatusNotFound, "connection not found")
 		return
@@ -262,6 +343,11 @@ func (h *APIHandler) UpdateSlave(w http.ResponseWriter, r *http.Request, connID,
 
 // DeleteSlave deletes a slave
 func (h *APIHandler) DeleteSlave(w http.ResponseWriter, r *http.Request, connID, slaveID string) {
+	conn, ok := h.getModbusConnection(w, connID)
+	if !ok {
+		return
+	}
+
 	existing, err := h.store.GetSlave(slaveID)
 	if err != nil || existing.ConnID != connID {
 		writeError(w, http.StatusNotFound, "slave not found")
@@ -273,11 +359,23 @@ func (h *APIHandler) DeleteSlave(w http.ResponseWriter, r *http.Request, connID,
 		return
 	}
 
+	if len(h.store.GetSlavesByConnection(connID)) == 0 {
+		_ = h.tcpServer.StopListener(conn.Port)
+		if err := h.store.DeleteConnection(connID); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to delete empty connection")
+			return
+		}
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 
 // GetRegisters returns all registers for a slave
 func (h *APIHandler) GetRegisters(w http.ResponseWriter, r *http.Request, connID, slaveID string) {
+	if _, ok := h.getModbusConnection(w, connID); !ok {
+		return
+	}
+
 	existing, err := h.store.GetSlave(slaveID)
 	if err != nil || existing.ConnID != connID {
 		writeError(w, http.StatusNotFound, "slave not found")
@@ -290,6 +388,10 @@ func (h *APIHandler) GetRegisters(w http.ResponseWriter, r *http.Request, connID
 
 // GetRegister returns a single register
 func (h *APIHandler) GetRegister(w http.ResponseWriter, r *http.Request, connID, slaveID, regID string) {
+	if _, ok := h.getModbusConnection(w, connID); !ok {
+		return
+	}
+
 	slave, err := h.store.GetSlave(slaveID)
 	if err != nil || slave.ConnID != connID {
 		writeError(w, http.StatusNotFound, "slave not found")
@@ -338,6 +440,10 @@ func normalizeJitterAmp(amp int) int {
 
 // CreateRegister creates a new register
 func (h *APIHandler) CreateRegister(w http.ResponseWriter, r *http.Request, connID, slaveID string) {
+	if _, ok := h.getModbusConnection(w, connID); !ok {
+		return
+	}
+
 	existing, err := h.store.GetSlave(slaveID)
 	if err != nil || existing.ConnID != connID {
 		writeError(w, http.StatusNotFound, "slave not found")
@@ -384,6 +490,10 @@ func (h *APIHandler) CreateRegister(w http.ResponseWriter, r *http.Request, conn
 
 // UpdateRegister updates an existing register
 func (h *APIHandler) UpdateRegister(w http.ResponseWriter, r *http.Request, connID, slaveID, regID string) {
+	if _, ok := h.getModbusConnection(w, connID); !ok {
+		return
+	}
+
 	slave, err := h.store.GetSlave(slaveID)
 	if err != nil || slave.ConnID != connID {
 		writeError(w, http.StatusNotFound, "slave not found")
@@ -436,6 +546,10 @@ func (h *APIHandler) UpdateRegister(w http.ResponseWriter, r *http.Request, conn
 
 // DeleteRegister deletes a register
 func (h *APIHandler) DeleteRegister(w http.ResponseWriter, r *http.Request, connID, slaveID, regID string) {
+	if _, ok := h.getModbusConnection(w, connID); !ok {
+		return
+	}
+
 	slave, err := h.store.GetSlave(slaveID)
 	if err != nil || slave.ConnID != connID {
 		writeError(w, http.StatusNotFound, "slave not found")

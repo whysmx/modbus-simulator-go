@@ -544,6 +544,46 @@ func TestUpdateConnectionPortConflict(t *testing.T) {
 	}
 }
 
+func TestCreateConnectionNameConflict(t *testing.T) {
+	s := New()
+
+	conn1 := &model.Connection{ID: "nameconflict1nameconflict1namec1", Name: "Conn1", Port: 1502}
+	conn2 := &model.Connection{ID: "nameconflict2nameconflict2namec2", Name: " conn1 ", Port: 1503}
+
+	if err := s.CreateConnection(conn1); err != nil {
+		t.Fatalf("CreateConnection(conn1) failed: %v", err)
+	}
+	err := s.CreateConnection(conn2)
+	if err != ErrNameInUse {
+		t.Fatalf("expected ErrNameInUse, got %v", err)
+	}
+}
+
+func TestUpdateConnectionNameConflict(t *testing.T) {
+	s := New()
+
+	conn1 := &model.Connection{ID: "upnameconflict1upnameconflict1nc1", Name: "Conn1", Port: 1502}
+	conn2 := &model.Connection{ID: "upnameconflict2upnameconflict1nc2", Name: "Conn2", Port: 1503}
+
+	if err := s.CreateConnection(conn1); err != nil {
+		t.Fatalf("CreateConnection(conn1) failed: %v", err)
+	}
+	if err := s.CreateConnection(conn2); err != nil {
+		t.Fatalf("CreateConnection(conn2) failed: %v", err)
+	}
+
+	updateReq := &model.Connection{ID: conn2.ID, Name: "  cOnN1  ", Port: 1503}
+	err := s.UpdateConnection(updateReq)
+	if err != ErrNameInUse {
+		t.Fatalf("expected ErrNameInUse, got %v", err)
+	}
+
+	got, _ := s.GetConnection(conn2.ID)
+	if got.Name != "Conn2" {
+		t.Errorf("conn2 name = %s, want Conn2 (unchanged)", got.Name)
+	}
+}
+
 func TestUpdateConnectionPortChange(t *testing.T) {
 	s := New()
 
