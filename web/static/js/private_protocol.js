@@ -98,7 +98,7 @@
         host.innerHTML = `
             <div class="mode-switch" role="tablist" aria-label="工作区切换">
                 <button type="button" class="mode-switch-btn" data-app-mode="modbus">Modbus</button>
-                <button type="button" class="mode-switch-btn" data-app-mode="private">私有协议</button>
+                <button type="button" class="mode-switch-btn" data-app-mode="private">其他协议</button>
             </div>
         `;
         host.querySelectorAll('[data-app-mode]').forEach((btn) => {
